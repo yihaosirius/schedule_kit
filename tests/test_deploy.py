@@ -339,3 +339,57 @@ def test_gitattributes_marks_images_binary() -> None:
     text = (PROJECT_ROOT / ".gitattributes").read_text(encoding="utf-8")
     for pattern in ("*.png", "*.jpg", "*.ico"):
         assert pattern in text, f".gitattributes 没有把 {pattern} 标为 binary"
+
+
+# --------------------------------------------------------------------------- #
+# 可执行位
+# --------------------------------------------------------------------------- #
+def test_shell_scripts_are_executable_in_git() -> None:
+    """Windows 没有 POSIX 可执行位，git 会一律记录成 100644。
+
+    后果：在 Linux 上 clone 下来后 ``deploy/install.sh`` 没有 x 权限，
+    直接执行报 ``Permission denied``（而且 ``sudo`` 也救不了 —— sudo 同样
+    要先 exec 这个文件）。这个坑实际踩过。
+
+    注意 ``core.fileMode`` 在 Windows 上恒为 false，所以**必须**用
+    ``git update-index --chmod=+x <file>`` 显式写进索引，靠本地 chmod 无效。
+    """
+    if not (PROJECT_ROOT / ".git").exists():
+        pytest.skip("不在 git 仓库中（例如从 tarball 解压）")
+
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-s", "deploy/install.sh", "deploy/backup.sh"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:  # pragma: no cover
+        pytest.skip(f"无法调用 git：{exc}")
+
+    if result.returncode != 0:
+        pytest.skip(f"git 不可用：{result.stderr.strip()}")
+
+    modes = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4:
+            modes[parts[3]] = parts[0]
+
+    for path in ("deploy/install.sh", "deploy/backup.sh"):
+        assert modes.get(path) == "100755", (
+            f"{path} 在 git 索引里的 mode 是 {modes.get(path)!r}，应为 '100755'。"
+            " 修复：git update-index --chmod=+x " + path
+        )
+
+
+def test_install_sh_sets_modes_for_generated_scripts() -> None:
+    """生成的脚本用 install -m / chmod 显式设权限，不依赖源文件的 mode。"""
+    text = read(INSTALL_SH)
+    assert "install -m 0755" in text, "backup.sh 安装到 /usr/local/bin 时应显式设 0755"
+    assert "chmod 0700 /etc/schedulekit/duckdns-update.sh" in text, (
+        "含 DuckDNS token 的脚本必须是 0700"
+    )

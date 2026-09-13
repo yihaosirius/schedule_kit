@@ -76,6 +76,17 @@ cd /root/schedule_kit
 sudo bash deploy/install.sh --init
 ```
 
+> **`bash` 不能省。** 它不只是风格问题：仓库是在 Windows 上开发的，而 NTFS
+> 没有 POSIX 可执行位，``core.fileMode`` 恒为 false，所以 git 记录的是 100644。
+> 直接敲 `deploy/install.sh` 会报 `Permission denied`（`sudo` 也一样——sudo
+> 同样要先 exec 这个文件）。
+>
+> 脚本已在 git 索引里标了 `100755`，**下次 clone 就正常了**。已有的克隆可以：
+>
+> ```bash
+> chmod +x deploy/install.sh deploy/backup.sh
+> ```
+
 `--init` 会依次询问：域名、ACME 邮箱、DuckDNS Token（隐藏输入）、HTTPS 端口
 （默认 8443）、管理员密码。然后自动完成下面全部工作。
 
