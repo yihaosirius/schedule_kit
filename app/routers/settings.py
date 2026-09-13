@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from app.config import ConfigError
 from app.deps import AuthDep, SessionDep, SessionWriteDep
 from app.llm import build_llm
 from app.llm.base import LLMNotConfigured
@@ -89,7 +90,14 @@ def put_settings(
         values["api_key"] = payload.api_key.strip()
 
     before = cfg.llm
-    cfg.update_section("llm", values)
+    try:
+        cfg.update_section("llm", values)
+    except ConfigError as exc:
+        # 走到这里通常是文件权限问题（目录属主不对）。给出可操作提示，
+        # 而不是让它变成没有线索的 500。
+        log.error("console.settings_save_failed %s", kv(error=str(exc)[:200]))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     log.info(
         "console.settings_saved %s",
         kv(

@@ -184,6 +184,32 @@ duckdns_token = ""
 若换成非 DuckDNS 域名，证书签发改用对应 provider 的 acme.sh 插件
 （`--dns dns_dp` 或 `--dns dns_ali`），脚本里那一段有注释标明位置。
 
+**④ 控制台点保存提示 `Internal Server Error`**
+
+`/etc/schedulekit` 的**属主**必须是服务账号。
+
+控制台保存 `[llm]` 配置时要就地改写 `config.toml`，而原子写需要在该目录里
+创建锁文件（`config.toml.lock`）与临时文件——这是**目录写权限**，只把配置文件
+本身 chown 给服务账号是不够的。
+
+```bash
+sudo chown schedulekit:schedulekit /etc/schedulekit
+```
+
+**不用重启**，权限变更对进行中的进程立即生效，改完直接回浏览器重试。
+
+> 目录保持 `0755`：Caddy 以另一个用户运行，需要能遍历进去读 `certs/`。
+>
+> 新版 `install.sh` 会自动设好属主，并在部署时**以服务账号身份实际试写一次**
+> （`==> 验证服务账号可写关键目录`），不通过就直接中断——避免把问题留到
+> 用户点保存时才暴露。
+
+排查具体原因看 trace id：
+
+```bash
+journalctl -u schedulekit | grep -A 30 'request.error'
+```
+
 ## 卸载
 
 ```bash

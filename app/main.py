@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager, suppress
 from typing import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
@@ -20,7 +21,7 @@ from app.db import Database
 from app.housekeeping import run_forever as housekeeping_loop
 from app.llm import build_llm
 from app.llm.base import LLMNotConfigured
-from app.logging import get_logger, kv, set_trace_id
+from app.logging import get_logger, get_trace_id, kv, set_trace_id
 from app.migrations.runner import apply_migrations
 from app.paths import STATIC_DIR
 from app.routers import auth as auth_router
@@ -141,6 +142,25 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
         response.headers[TRACE_HEADER] = trace_id
         return response
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+        """兜底处理器：任何未处理异常都回一个**带 trace id** 的 500。
+
+        默认的 500 既没有响应头也没有 body，用户只看到 "Internal Server Error"，
+        既不知道原因也没法把浏览器里的报错和服务端日志对上 ——
+        实测踩过（配置目录权限问题导致的保存失败就表现为这样）。
+        """
+        trace_id = get_trace_id()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "服务器内部错误。请用下面的 trace id 在服务端日志中查完整堆栈："
+                f"journalctl -u schedulekit | grep 't={trace_id}'",
+                "trace_id": trace_id,
+            },
+            headers={TRACE_HEADER: trace_id},
+        )
 
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

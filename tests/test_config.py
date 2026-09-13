@@ -72,6 +72,42 @@ def test_missing_config_file_raises_actionable_error(tmp_path: Path) -> None:
     assert "cli init" in str(excinfo.value)
 
 
+def test_write_failure_becomes_actionable_config_error(
+    config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """目录不可写时必须给出可操作提示，而不是裸 PermissionError。
+
+    实测踩过：`/etc/schedulekit` 属主是 root 时，服务账号建不了锁文件，
+    网页上只看到一个没有任何线索的 500。
+    """
+    import builtins
+
+    real_open = builtins.open
+
+    def failing_open(file, *args, **kwargs):
+        if str(file).endswith(".lock"):
+            raise PermissionError(13, "Permission denied")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", failing_open)
+
+    cfg = Config(config_path)
+    with pytest.raises(ConfigError) as excinfo:
+        cfg.update_section("llm", {"model": "x"})
+
+    message = str(excinfo.value)
+    assert "无法写入配置文件" in message
+    assert "chown" in message, "错误信息里要直接给出修复命令"
+    assert "chmod 0755" in message
+
+
+def test_config_write_creates_lock_next_to_the_file(config_path: Path) -> None:
+    """锁文件与临时文件都建在配置**所在目录**——这正是需要目录写权限的原因。"""
+    cfg = Config(config_path)
+    cfg.update_section("llm", {"model": "lock-check"})
+    assert (config_path.parent / (config_path.name + ".lock")).exists()
+
+
 # --------------------------------------------------------------------------- #
 # 数据库
 # --------------------------------------------------------------------------- #

@@ -506,3 +506,41 @@ def test_install_probes_https_from_the_outside() -> None:
     text = read(INSTALL_SH)
     assert "外部 HTTPS 可达" in text
     assert "安全组" in text, "失败提示要指向服务商安全组那一层"
+
+
+# --------------------------------------------------------------------------- #
+# 服务账号必须能写它要写的目录
+# --------------------------------------------------------------------------- #
+def test_etc_dir_is_owned_by_the_service_user() -> None:
+    """控制台保存 [llm] 配置要就地改写 config.toml。
+
+    原子写需要在该**目录**里创建锁文件与临时文件 —— 这是目录写权限。
+    只 chown 配置文件、目录仍是 root:root 0755 时，服务账号建不了任何文件，
+    保存直接 500。这个坑实际踩过（用户点保存看到 Internal Server Error）。
+    """
+    text = read(INSTALL_SH)
+    line = next(
+        (l for l in text.splitlines() if "install -d" in l and "${ETC_DIR}" in l),
+        None,
+    )
+    assert line is not None, "找不到创建 ${ETC_DIR} 的那一行"
+    assert "-o \"${APP_USER}\"" in line, f"${{ETC_DIR}} 必须归服务账号所有：{line.strip()}"
+    assert "-g \"${APP_GROUP}\"" in line, f"${{ETC_DIR}} 的属组也要设对：{line.strip()}"
+
+
+def test_install_probes_writability_as_the_service_user() -> None:
+    """权限位写对不等于真能写 —— 要拿服务账号实际试一次。"""
+    text = read(INSTALL_SH)
+    assert "sk_probe_write" in text, "应有一个以服务账号身份实际写入的探测函数"
+    assert "runuser -u" in text, "探测必须以服务账号身份执行"
+    # 两个关键目录都要探
+    assert 'sk_probe_write "${ETC_DIR}"' in text, "要探测配置目录（控制台保存配置依赖它）"
+    assert 'sk_probe_write "${DATA_DIR}"' in text, "要探测数据目录"
+
+
+def test_etc_dir_stays_traversable_for_caddy() -> None:
+    """Caddy 以另一个用户运行，要能穿到 certs/ 读证书 —— 别改成 0700。"""
+    text = read(INSTALL_SH)
+    for line in text.splitlines():
+        if "install -d" in line and "${ETC_DIR}" in line:
+            assert "0755" in line, f"${{ETC_DIR}} 需保持可遍历，Caddy 才能读到证书：{line.strip()}"

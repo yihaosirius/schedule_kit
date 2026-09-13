@@ -106,6 +106,21 @@ print(node)
 PY
 }
 
+# 用服务账号**实际写一个文件**，而不是只看权限位。
+# 控制台保存配置依赖目录写权限（原子写要建锁文件与临时文件），
+# 只 chown 配置文件而目录属 root 时，保存会 500 —— 这个坑实际踩过。
+sk_probe_write() {
+  local dir="$1" what="$2"
+  local probe="${dir}/.write-probe.$$"
+  if runuser -u "${APP_USER}" -- touch "${probe}" 2>/dev/null; then
+    rm -f "${probe}"
+    info "${APP_USER} 可写 ${dir}　（${what}）"
+  else
+    fail "${APP_USER} 无法写入 ${dir} —— ${what} 会失败。
+     修复：chown ${APP_USER}:${APP_GROUP} ${dir} && chmod 0755 ${dir}"
+  fi
+}
+
 # ── 1. 基础依赖 ─────────────────────────────────────────────────────
 step "安装基础依赖"
 export DEBIAN_FRONTEND=noninteractive
@@ -123,7 +138,13 @@ else
 fi
 
 install -d -m 0755 "${OPT_DIR}"
-install -d -m 0755 "${ETC_DIR}"          # 需可遍历，Caddy 才能读到 certs/
+# /etc/schedulekit 必须由**服务账号**拥有。
+# 控制台保存 [llm] 配置时要就地改写 config.toml，而原子写需要在该目录里
+# 创建锁文件与临时文件 —— 这是**目录**写权限，不是文件写权限。
+# 只 chown 文件（下面那两处）是不够的：目录属 root 0755 时，服务账号
+# 创建不了任何文件，保存会直接 500。这个坑实际踩过。
+# 保持 0755 让 Caddy（其他用户）仍能遍历到 certs/。
+install -d -m 0755 -o "${APP_USER}" -g "${APP_GROUP}" "${ETC_DIR}"
 install -d -m 0755 "${CERT_DIR}"
 install -d -m 0750 -o "${APP_USER}" -g "${APP_GROUP}" "${DATA_DIR}"
 
@@ -244,6 +265,10 @@ fi
 step "应用数据库迁移"
 sk_cli migrate
 chown -R "${APP_USER}:${APP_GROUP}" "${DATA_DIR}"
+
+step "验证服务账号可写关键目录"
+sk_probe_write "${ETC_DIR}" "控制台保存 LLM 配置"
+sk_probe_write "${DATA_DIR}" "数据库与上传图片"
 
 # ── 6. systemd 服务 ─────────────────────────────────────────────────
 step "安装 systemd 服务"

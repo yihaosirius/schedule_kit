@@ -269,3 +269,60 @@ async def test_hot_reload_actually_swaps_the_adapter(session_client: AsyncClient
     app.state.llm = MockLLM(items=[])
     response = await session_client.post("/api/ingest", json={"channel": "text", "text": "x"})
     assert response.status_code == 201, "热加载后录入应立刻可用"
+
+
+# --------------------------------------------------------------------------- #
+# 出错时要能排查
+# --------------------------------------------------------------------------- #
+async def test_unhandled_error_returns_a_traceable_500(app, monkeypatch) -> None:
+    """500 必须带 trace id。
+
+    默认的 500 既没有响应头也没有 body，用户只看到 "Internal Server Error"，
+    既不知道原因也没法把浏览器里的报错和服务端日志对上 —— 实测踩过。
+
+    注意 ``raise_app_exceptions=False``：Starlette 的 ServerErrorMiddleware
+    在**发送完响应之后仍会重新抛出异常**（好让服务器记录堆栈），httpx 默认会
+    把这个异常再抛给测试，导致拿不到响应对象。
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    from app.routers import settings as settings_router
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("人为触发的内部错误")
+
+    monkeypatch.setattr(settings_router.apikey_service, "list_keys", boom)
+
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        await client.post("/api/login", json={"password": TEST_PASSWORD})
+        response = await client.get("/api/keys")
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["trace_id"], "500 响应体里要有 trace id"
+    assert response.headers.get("X-Trace-Id") == body["trace_id"], "响应头也要带上"
+    assert "journalctl" in body["detail"], "提示里要直接给出查日志的命令"
+
+
+async def test_settings_save_reports_permission_problem_clearly(
+    session_client: AsyncClient, monkeypatch
+) -> None:
+    """配置写不进去时要给出可操作提示，而不是一个没有线索的 500。"""
+    from app.config import Config, ConfigError
+
+    def boom(self, section, values):
+        raise ConfigError(
+            "无法写入配置文件 /etc/schedulekit/config.toml：Permission denied。"
+            "请确认目录属主：chown schedulekit:schedulekit /etc/schedulekit"
+        )
+
+    monkeypatch.setattr(Config, "update_section", boom)
+
+    response = await session_client.put(
+        "/api/settings", json={"provider": "mock", "model": "x"}
+    )
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert "无法写入配置文件" in detail
+    assert "chown" in detail, "要直接给出修复命令"

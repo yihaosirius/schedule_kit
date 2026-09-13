@@ -274,22 +274,38 @@ class Config:
 
     # -- 写入 ------------------------------------------------------------- #
     def update_section(self, section: str, values: dict[str, Any]) -> None:
-        """合并写入某个分段，保留文件中其余内容与全部注释。"""
+        """合并写入某个分段，保留文件中其余内容与全部注释。
+
+        写入失败一律转成带可操作提示的 :class:`ConfigError`。
+
+        这不是防御性编程而是踩过的坑：``config.toml`` 所在**目录**如果属主不是
+        运行服务的账号，创建锁文件与原子写临时文件都会失败。原本抛的是裸
+        ``PermissionError``，在网页上表现为一个没有任何线索的 500 ——
+        用户只能看到 "Internal Server Error"，完全无从下手。
+        """
         lock_path = self.path.with_suffix(self.path.suffix + ".lock")
-        with open(lock_path, "a+b") as lock_handle:
-            _lock(lock_handle)
-            try:
-                doc = self._read()
-                table = doc.get(section)
-                if table is None:
-                    doc[section] = tomlkit.table()
-                    table = doc[section]
-                for key, value in values.items():
-                    table[key] = value
-                _atomic_write(self.path, tomlkit.dumps(doc))
-                self._doc = doc
-            finally:
-                _unlock(lock_handle)
+        try:
+            with open(lock_path, "a+b") as lock_handle:
+                _lock(lock_handle)
+                try:
+                    doc = self._read()
+                    table = doc.get(section)
+                    if table is None:
+                        doc[section] = tomlkit.table()
+                        table = doc[section]
+                    for key, value in values.items():
+                        table[key] = value
+                    _atomic_write(self.path, tomlkit.dumps(doc))
+                    self._doc = doc
+                finally:
+                    _unlock(lock_handle)
+        except OSError as exc:
+            parent = self.path.parent
+            raise ConfigError(
+                f"无法写入配置文件 {self.path}：{exc}。"
+                f"请确认目录 {parent} 的属主是运行服务的账号，且允许创建文件："
+                f"chown schedulekit:schedulekit {parent} && chmod 0755 {parent}"
+            ) from exc
         self._build_sections()
 
     def generate_secret_key(self) -> str:
