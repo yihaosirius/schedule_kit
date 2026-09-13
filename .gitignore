@@ -1,0 +1,31 @@
+# 运行时数据（数据库、上传图片、备份）
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# 真实配置含密钥，永不入库
+config.toml
+# config.update_section 的排他锁文件（注意不要用 *.lock：
+# 那会把必须入库的 uv.lock 一起忽略掉，导致 uv sync --frozen 失效）
+config.toml.lock
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# uv 缓存（沙箱环境需要放在工作区内时使用）
+.uvcache/
+
+# 测试临时目录。受限沙箱里目录删不掉，只能忽略。
+.pytest-run/
+.pytest-tmp/
+pytest-cache-files-*/
+
+# 早期排查环境时留下的探测残留（沙箱里删不掉）
+py_tmp_probe/
+tmpjs_ydh03/
+.npmcache/

@@ -1,0 +1,43 @@
+{
+  "name": "ScheduleKit",
+  "short_name": "ScheduleKit",
+  "description": "个人任务管理：有截止时间的进有序表，其余按优先级排",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f7f9",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "课表",
+      "url": "/courses"
+    },
+    {
+      "name": "设置",
+      "url": "/settings"
+    }
+  ]
+}

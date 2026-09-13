@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}任务 · ScheduleKit{% endblock %}
+{% block body_class %}page-app{% endblock %}
+
+{% macro task_row(item) %}
+<li class="task{% if item['status'] == 'done' %} is-done{% endif %}"
+    data-id="{{ item['id'] }}"
+    data-view="{% if item['due_at'] %}ordered{% else %}unordered{% endif %}">
+  <input class="task__check" type="checkbox" data-action="toggle"
+         {% if item['status'] == 'done' %}checked{% endif %}
+         aria-label="标记完成">
+  <div class="task__body">
+    <div class="task__title">{{ item['title'] }}</div>
+    <div class="task__meta">
+      <span class="chip">{{ item['category'] | category_label }}</span>
+      {% if item['due_at'] %}
+        <span class="due {{ item['due_at'] | due_state(timezone) }}">
+          {{ item['due_at'] | local(timezone) }}
+          <span class="due__rel">· {{ item['due_at'] | countdown(timezone) }}</span>
+        </span>
+      {% else %}
+        <span class="badge-priority" data-p="{{ item['priority'] }}">{{ item['priority'] | priority_label }}</span>
+      {% endif %}
+      {% if item['notes'] %}<span class="chip" title="{{ item['notes'] }}">备注</span>{% endif %}
+    </div>
+  </div>
+  <div class="task__actions">
+    <button type="button" data-action="delete" title="删除" aria-label="删除">✕</button>
+  </div>
+</li>
+{% endmacro %}
+
+{% block body %}
+<header class="topbar">
+  <h1>ScheduleKit</h1>
+  <span class="spacer"></span>
+  <nav>
+    <a href="/courses">课表</a>
+    <a href="/settings">设置</a>
+    <a href="#" data-action="logout">退出</a>
+  </nav>
+</header>
+
+<main class="layout">
+  <section class="panel panel--major">
+    <header>
+      <h2>有序 · 有截止时间</h2>
+      <span class="count" data-count-for="ordered">{{ ordered | length }}</span>
+    </header>
+
+    <form class="add-form" data-add-form autocomplete="off">
+      <div class="add-form__row">
+        <input type="text" name="title" placeholder="添加任务…" required maxlength="200"
+               aria-label="任务标题">
+        <button type="submit">添加</button>
+      </div>
+      <div class="add-form__options">
+        <select name="category" aria-label="分类">
+          {% for value, label in categories.items() %}
+            <option value="{{ value }}"{% if value == 'homework' %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+
+        <select name="mode" data-mode aria-label="时间或优先级">
+          <option value="due">截止时间</option>
+          <option value="priority">优先级</option>
+        </select>
+
+        <input type="datetime-local" name="due_at" data-due aria-label="截止时间">
+
+        <select name="priority" data-priority aria-label="优先级" hidden>
+          {% for value, label in priorities.items() %}
+            <option value="{{ value }}"{% if value == 3 %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+
+        <span class="hint" data-hint>二选一：给了截止时间就不用选优先级</span>
+      </div>
+    </form>
+
+    <ul class="task-list" data-list="ordered">
+      {% for item in ordered %}{{ task_row(item) }}{% endfor %}
+    </ul>
+    <p class="empty" data-empty-for="ordered"{% if ordered %} hidden{% endif %}>暂无带截止时间的任务</p>
+  </section>
+
+  <details class="panel panel--minor" data-collapsible>
+    <summary>
+      <h2>无序 · 按优先级</h2>
+      <span class="count" data-count-for="unordered">{{ unordered | length }}</span>
+    </summary>
+    <ul class="task-list" data-list="unordered">
+      {% for item in unordered %}{{ task_row(item) }}{% endfor %}
+    </ul>
+    <p class="empty" data-empty-for="unordered"{% if unordered %} hidden{% endif %}>暂无仅按优先级排的任务</p>
+  </details>
+</main>
+
+<button class="fab" type="button" data-action="focus-add" aria-label="添加任务">＋</button>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/tasks.js" defer></script>
+{% endblock %}

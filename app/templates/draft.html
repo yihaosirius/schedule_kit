@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}确认识别结果 · ScheduleKit{% endblock %}
+{% block body_class %}page-draft{% endblock %}
+
+{% block body %}
+<header class="topbar">
+  <h1>确认识别结果</h1>
+  <span class="spacer"></span>
+  <nav><a href="/">返回任务</a></nav>
+</header>
+
+<main class="layout layout--single"
+      data-draft-page
+      data-draft-id="{{ draft_id }}"
+      data-status="{{ draft.status }}">
+
+  {% if draft.status == 'failed' %}
+    <section class="panel">
+      <header><h2>识别失败</h2></header>
+      <p class="empty">{{ draft.error or '未知错误' }}</p>
+      <p class="empty">草稿已留档（含模型原始返回），可直接重试上传。</p>
+    </section>
+  {% elif draft.status == 'confirmed' %}
+    <section class="panel">
+      <header><h2>已入库</h2></header>
+      <p class="empty">这次确认创建了任务 {{ draft["created_item_ids"] }}。</p>
+      <p class="empty"><a href="/">回到任务列表</a></p>
+    </section>
+  {% elif draft.status == 'discarded' %}
+    <section class="panel">
+      <header><h2>已丢弃</h2></header>
+      <p class="empty">这条草稿已被丢弃，没有任务入库。</p>
+    </section>
+  {% else %}
+    <section class="panel">
+      <header>
+        <h2>识别到 {{ draft["items"] | length }} 条事项</h2>
+        <span class="count">核对后再入库</span>
+      </header>
+
+      {% if draft.image_path %}
+        <div class="draft-image">
+          <img src="/api/ingest/{{ draft_id }}/image" alt="上传的原图">
+        </div>
+      {% endif %}
+
+      {% if draft.context_snapshot %}
+        <details class="draft-context">
+          <summary>本次识别依据的时间上下文</summary>
+          <pre>{{ draft.context_snapshot }}</pre>
+          <p class="hint">识别结果不对时先看这里——能分清是上下文算错了还是模型理解错了。</p>
+        </details>
+      {% endif %}
+
+      <form class="draft-form" data-draft-form>
+        <ol class="draft-items" data-draft-items>
+          {% for item in draft["items"] %}
+            <li class="draft-item{% if item.needs_priority %} is-flagged{% endif %}">
+              <div class="draft-item__head">
+                <input type="text" class="draft-item__title" data-field="title"
+                       value="{{ item.title }}" maxlength="200" aria-label="标题">
+                <button type="button" class="button-ghost" data-action="remove">删除</button>
+              </div>
+
+              <div class="draft-item__meta">
+                <label class="draft-field">
+                  <span>分类</span>
+                  <select data-field="category">
+                    {% for value, label in categories.items() %}
+                      <option value="{{ value }}"{% if value == item.category %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+
+                <div class="draft-mode">
+                  <select data-field="mode" aria-label="时间或优先级">
+                    <option value="due"{% if item.due_at %} selected{% endif %}>截止时间</option>
+                    <option value="priority"{% if not item.due_at %} selected{% endif %}>优先级</option>
+                  </select>
+                  <input type="datetime-local" data-field="due_at"
+                         value="{{ item.due_at | local_input(timezone) }}" aria-label="截止时间">
+                  <select data-field="priority" aria-label="优先级"{% if item.due_at %} hidden{% endif %}>
+                    {% for value, label in priorities.items() %}
+                      <option value="{{ value }}"{% if value == (item.priority or 3) %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+
+                {% if item.source_quote %}
+                  <p class="draft-item__quote">依据：「{{ item.source_quote }}」</p>
+                {% endif %}
+                {% if item.needs_priority %}
+                  <p class="draft-item__flag">模型既没给时间也没给优先级，已默认填 Ⅲ，请确认。</p>
+                {% endif %}
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+
+        <div class="draft-actions">
+          <button type="submit" class="button-primary">确认入库</button>
+          <button type="button" data-action="discard" class="button-ghost">丢弃</button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+{% if draft.status == 'pending' %}
+<script src="/static/js/draft.js" defer></script>
+{% endif %}
+{% endblock %}

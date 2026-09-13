@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}设置 · ScheduleKit{% endblock %}
+{% block body_class %}page-settings{% endblock %}
+
+{% block body %}
+<header class="topbar">
+  <h1>设置</h1>
+  <span class="spacer"></span>
+  <nav>
+    <a href="/">任务</a>
+    <a href="/courses">课表</a>
+  </nav>
+</header>
+
+<main class="layout layout--single" data-settings-page>
+
+  {# ── LLM 配置 ───────────────────────────────────────────────────── #}
+  <section class="panel">
+    <header>
+      <h2>LLM 配置</h2>
+      <span class="count" data-llm-state>
+        {% if status.llm.ready %}已就绪{% else %}未就绪{% endif %}
+      </span>
+    </header>
+
+    {% if status.llm.error %}
+      <p class="callout callout--warn" data-llm-error>{{ status.llm.error }}</p>
+    {% endif %}
+
+    <form class="settings-form" data-llm-form>
+      <div class="settings-grid">
+        <label class="settings-field">
+          <span>协议</span>
+          <select name="provider">
+            <option value="openai_compat"{% if llm.provider == 'openai_compat' %} selected{% endif %}>OpenAI 兼容</option>
+            <option value="mock"{% if llm.provider == 'mock' %} selected{% endif %}>mock（离线测试）</option>
+          </select>
+        </label>
+
+        <label class="settings-field">
+          <span>模型</span>
+          <input type="text" name="model" value="{{ llm.model }}" placeholder="deepseek-vl2">
+        </label>
+      </div>
+
+      <label class="settings-field">
+        <span>Base URL</span>
+        <input type="text" name="base_url" value="{{ llm.base_url }}"
+               placeholder="https://api.deepseek.com/v1">
+      </label>
+
+      <label class="settings-field">
+        <span>API Key</span>
+        <input type="password" name="api_key" autocomplete="off"
+               placeholder="{% if llm.api_key_set %}已设置（留空则保持不变）{% else %}尚未设置{% endif %}">
+        <small class="hint">
+          出于安全考虑永不回显。留空表示保持不变；要清空请点右侧按钮。
+          <button type="button" class="linklike" data-action="clear-key">清空密钥</button>
+        </small>
+      </label>
+
+      <div class="settings-grid">
+        <label class="settings-field">
+          <span>temperature</span>
+          <input type="number" name="temperature" step="0.1" min="0" max="2" value="{{ llm.temperature }}">
+        </label>
+        <label class="settings-field">
+          <span>超时（秒）</span>
+          <input type="number" name="timeout_seconds" min="5" max="600" value="{{ llm.timeout_seconds }}">
+        </label>
+        <label class="settings-field">
+          <span>max_tokens</span>
+          <input type="number" name="max_tokens" min="64" max="32000" value="{{ llm.max_tokens }}">
+        </label>
+        <label class="settings-field">
+          <span>图片上限（MB）</span>
+          <input type="number" name="max_image_mb" min="1" max="32"
+                 value="{{ (llm.max_image_bytes // 1048576) or 1 }}">
+        </label>
+      </div>
+
+      <label class="settings-field">
+        <span>system prompt</span>
+        <textarea name="system_prompt" rows="12" spellcheck="false">{{ llm.system_prompt }}</textarea>
+        <small class="hint">
+          保持静态（不要写入时间或课表）——时间上下文由服务端在每次请求时
+          拼进 user message，写进这里会让 prompt 缓存永远失效。
+        </small>
+      </label>
+
+      <div class="settings-actions">
+        <button type="submit" class="button-primary">保存并立即生效</button>
+        <span class="hint" data-llm-status></span>
+      </div>
+    </form>
+  </section>
+
+  {# ── API 密钥 ───────────────────────────────────────────────────── #}
+  <section class="panel">
+    <header>
+      <h2>API 密钥</h2>
+      <span class="count">{{ status.keys.active }} 个有效</span>
+    </header>
+
+    <div class="callout callout--info" data-key-reveal hidden>
+      <p><strong>密钥只显示这一次</strong>，请立即复制保存。服务端只存 SHA-256，之后无法再取回。</p>
+      <code data-key-plaintext></code>
+    </div>
+
+    <form class="settings-form settings-form--inline" data-key-form>
+      <label class="settings-field">
+        <span>名称</span>
+        <input type="text" name="name" placeholder="例如 手机快捷指令" required maxlength="60">
+      </label>
+      <label class="settings-field settings-field--check">
+        <input type="checkbox" name="read_only">
+        <span>只读（仅允许查询，供小组件使用）</span>
+      </label>
+      <button type="submit" class="button-primary">创建</button>
+    </form>
+
+    {% if keys %}
+      <table class="settings-table">
+        <thead>
+          <tr><th>名称</th><th>权限</th><th>创建时间</th><th>最后使用</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for key in keys %}
+            <tr data-key-id="{{ key.id }}">
+              <td>{{ key.name }}</td>
+              <td>{% if key.read_only %}<span class="chip">只读</span>{% else %}<span class="chip">读写</span>{% endif %}</td>
+              <td>{{ key.created_at | local(timezone) }}</td>
+              <td>{{ key.last_used_at | local(timezone) if key.last_used_at else '—' }}</td>
+              <td><button type="button" class="button-ghost" data-action="revoke-key">吊销</button></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">还没有密钥。快捷指令与 Windows 悬浮窗各需要一个。</p>
+    {% endif %}
+  </section>
+
+  {# ── 运行状态 ───────────────────────────────────────────────────── #}
+  <section class="panel panel--minor">
+    <header><h2>运行状态</h2></header>
+    <table class="settings-table">
+      <tbody>
+        <tr><th>版本</th><td>{{ status.version }}</td></tr>
+        <tr><th>配置文件</th><td><code>{{ status.config_path }}</code></td></tr>
+        <tr><th>数据目录</th><td><code>{{ status.data_dir }}</code></td></tr>
+        <tr><th>对外地址</th><td><code>{{ status.public_url }}</code></td></tr>
+        <tr><th>时区</th><td>{{ status.timezone }}</td></tr>
+        <tr><th>常驻内存</th><td>{{ status.rss_bytes | filesize }}</td></tr>
+        <tr><th>数据库</th><td>{{ status.db_bytes | filesize }}</td></tr>
+        <tr><th>图片占用</th><td>{{ status.uploads_bytes | filesize }}</td></tr>
+        <tr><th>任务</th>
+          <td>
+            有序 {{ status.tasks.get('ordered', 0) }} · 无序 {{ status.tasks.get('unordered', 0) }}
+            · 已完成 {{ status.tasks.get('done', 0) }}
+          </td>
+        </tr>
+        <tr><th>草稿</th>
+          <td>
+            待确认 {{ status.drafts.get('pending', 0) }} · 已确认 {{ status.drafts.get('confirmed', 0) }}
+            · 失败 {{ status.drafts.get('failed', 0) }}
+          </td>
+        </tr>
+        <tr><th>课表</th><td>{{ status.courses.get('courses', 0) }} 门 / {{ status.courses.get('sessions', 0) }} 时段</td></tr>
+        <tr><th>录入保留</th><td>{{ ingest.confirm_ttl_hours }} 小时</td></tr>
+      </tbody>
+    </table>
+    <p class="hint settings-footnote">
+      内存与磁盘数字每次打开本页时刷新，不做后台采集。
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/settings.js" defer></script>
+{% endblock %}

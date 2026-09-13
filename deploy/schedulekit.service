@@ -1,0 +1,51 @@
+[Unit]
+Description=ScheduleKit 个人任务管理服务
+Documentation=https://github.com/your/schedulekit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=schedulekit
+Group=schedulekit
+WorkingDirectory=/opt/schedulekit
+Environment=SK_CONFIG=/etc/schedulekit/config.toml
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/schedulekit/.venv/bin/python -m app.serve
+
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+# ── 加固 ────────────────────────────────────────────────────────────
+# 只监听回环，对外一律经 Caddy；这里再收一遍权限，减少被拿下的影响面。
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+# strict 模式下只读，因此要显式放开这两处写入：
+#   /var/lib/schedulekit —— 数据库与上传图片
+#   /etc/schedulekit     —— 控制台保存 [llm] 配置需就地改写 config.toml
+ReadWritePaths=/var/lib/schedulekit /etc/schedulekit
+
+# 内存上限。计划目标是常驻 100–140MB，这里留出余量；
+# 真撞上限会被 systemd 重启，比 OOM 拖垮整机好。
+MemoryMax=256M
+MemoryHigh=192M
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=schedulekit
+
+[Install]
+WantedBy=multi-user.target

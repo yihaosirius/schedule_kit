@@ -1,0 +1,90 @@
+# ============================================================================
+# ScheduleKit 唯一配置文件（模板）
+#
+# 这是全服务器唯一的配置来源。复制为 config.toml 后填写。
+# 控制台 /settings 会就地修改本文件并保留以下全部注释。
+#
+# 生产路径：/etc/schedulekit/config.toml  （属服务账号、权限 0600）
+# 开发路径：项目根目录 config.toml
+#
+# 读取顺序（仅决定“读哪个文件”，不做多来源合并）：
+#   --config 参数 → SK_CONFIG 环境变量 → /etc/schedulekit/config.toml → ./config.toml
+# ============================================================================
+
+[server]
+# 对外访问地址，用于生成 confirm_url 等绝对链接。必须与 Caddy 的对外地址一致。
+public_url  = "https://schedulekit.duckdns.org:8443"
+# 时区。同时作为 LLM 返回“无时区时间”时的解释基准。
+timezone    = "Asia/Shanghai"
+# uvicorn 仅监听回环，对外一律经 Caddy 反代。生产环境不要改成 0.0.0.0。
+listen_host = "127.0.0.1"
+listen_port = 8000
+# 数据目录。绝对路径直接使用；相对路径相对本配置文件所在目录解析。
+data_dir    = "data"
+
+[auth]
+# 以下两项由 `python -m app.cli` 写入，不建议手改。
+# 管理员密码的 scrypt 哈希。用 `python -m app.cli set-password` 设置。
+password_hash    = ""
+# 会话 Cookie 与 CSRF 的签名根密钥。`python -m app.cli init` 会自动生成。
+# 为空时应用拒绝启动（fail-closed）。
+secret_key       = ""
+session_ttl_days = 30
+# 改密码时自增，可让所有既有会话立即失效（无状态 Cookie 的吊销手段）。
+session_epoch    = 1
+
+[term]
+# 第 1 周的周一（ISO 日期）。每学期手改一次，用于把周次换算成具体日期。
+start_date  = "2026-03-02"
+total_weeks = 18
+
+[llm]
+# 唯一结构化机制是 function calling；供应商必须支持强制 tool_choice + 视觉输入。
+provider        = "openai_compat"
+base_url        = "https://api.deepseek.com/v1"
+model           = "deepseek-vl2"
+api_key         = ""
+temperature     = 0.0
+timeout_seconds = 60
+# 精简输出的硬保险
+max_tokens      = 1024
+max_image_bytes = 8388608
+# system prompt 保持静态（不含时间/课表上下文），以维持 prompt 缓存有效性。
+# 时间上下文由服务端在每次请求时拼进 user message。
+system_prompt   = """
+从图片或文本中抽取所有可执行事项，调用 submit_tasks 提交。只调用工具，不输出任何解释文字。
+
+规则：
+1. 有明确截止时间：输出 due_at（ISO8601 带时区偏移），priority 必须为 null。
+2. 无截止时间：due_at 为 null，按档位给出 priority：
+   1=Ⅰ 24小时内必须处理 / 2=Ⅱ 本周关键 / 3=Ⅲ 常规 / 4=Ⅳ 可延后 / 5=Ⅴ 有空再说。
+3. title ≤20 字，不重复时间、地点、课程名（已由独立字段承载）。
+4. notes ≤60 字，无额外信息时不输出该键。
+5. source_quote ≤20 字，填图中支撑该判定的原文。
+6. 同一事项的多次提及合并为一条；最多 20 条。
+
+时间上下文使用规则（见用户消息）：
+- 仅用于解析相对时间与课程指代（如“下节课”“这门课”“明天”）。
+- 不得据此推断待识别内容的主语或归属；内容与课表无关时完全忽略上下文。
+- 若内容中已含明确日期，一律以内容为准，不得用当前时间替换。
+- 上下文不得影响 priority 判定。
+"""
+
+[ingest]
+# 未确认草稿的保留时长，到期由 housekeeping 清理。
+confirm_ttl_hours = 48
+
+[tls]
+# 仅部署脚本读取，应用本身不加载本段。
+provider      = "duckdns"   # duckdns | manual
+domain        = "schedulekit.duckdns.org"
+port          = 8443
+acme_email    = "you@example.com"
+duckdns_token = ""
+cert_dir      = "/etc/schedulekit/certs"
+
+[backup]
+enabled               = true
+hour                  = 4
+keep                  = 7
+upload_retention_days = 30

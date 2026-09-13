@@ -1,0 +1,32 @@
+[project]
+name = "schedulekit"
+version = "0.1.0"
+description = "个人任务管理系统：双列表 WebUI + LLM 两阶段录入 + 课表上下文"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "httpx>=0.27",
+    "pillow>=10.0",
+    "tomlkit>=0.13",
+    "python-multipart>=0.0.9",
+    # Windows 无系统 tzdata，zoneinfo 需要这个包才能解析 "Asia/Shanghai"
+    "tzdata>=2024.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "anyio>=4.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

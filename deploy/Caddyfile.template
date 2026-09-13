@@ -1,0 +1,59 @@
+# ScheduleKit 的 Caddy 站点配置模板。
+#
+# install.sh 会用 config.toml 里的值替换下面的占位符后写入 /etc/caddy/Caddyfile：
+#   __DOMAIN__   [tls].domain
+#   __PORT__     [tls].port
+#   __CERT__     [tls].cert_dir + fullchain.pem
+#   __KEY__      [tls].cert_dir + privkey.pem
+#   __BACKEND__  [server].listen_host:listen_port（uvicorn）
+#
+# 几个刻意的选择：
+#   * 用显式 tls <证书路径> 而不是让 Caddy 自动 ACME —— 证书由 acme.sh 走
+#     DNS-01 签发，不需要 80/443 入站，也就不触发大陆备案条件。
+#   * 只监听 __PORT__，不额外开 80/443。
+#   * uvicorn 只监听回环，外部无法绕过 Caddy 直连应用。
+
+{
+	# 关掉管理端点，单机不需要
+	admin off
+	# 日志走 journald，交给 journalctl 统一收
+	log {
+		output journal
+		format console
+	}
+}
+
+https://__DOMAIN__:__PORT__ {
+	tls __CERT__ __KEY__
+
+	encode zstd gzip
+
+	# 安全响应头。没有外链需求，所以 CSP 收到最紧。
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+		-Server
+	}
+
+	# 上传接口吃 base64 图片，放宽请求体上限（与 [llm].max_image_bytes 对应）
+	request_body {
+		max_size 24MB
+	}
+
+	reverse_proxy __BACKEND__ {
+		# 让应用拿到真实客户端 IP（登录限流按 IP 计数）
+		header_up X-Real-IP {remote_host}
+	}
+
+	# 静态资源带指纹才好长缓存；这里用路径前缀做粗粒度缓存
+	@static path /static/*
+	header @static Cache-Control "public, max-age=604800"
+
+	# 健康检查不打日志，免得刷屏
+	@health path /healthz
+	log_skip @health
+}

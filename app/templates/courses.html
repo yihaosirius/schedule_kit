@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}课表 · ScheduleKit{% endblock %}
+{% block body_class %}page-courses{% endblock %}
+
+{% block body %}
+<header class="topbar">
+  <h1>课表</h1>
+  <span class="spacer"></span>
+  <nav>
+    <a href="/">任务</a>
+    <a href="/settings">设置</a>
+  </nav>
+</header>
+
+<main class="layout layout--single">
+  <section class="panel">
+    <header>
+      <h2>学期信息</h2>
+      <span class="count">
+        {% if week_number %}第 {{ week_number }} 周{% else %}非学期周{% endif %}
+      </span>
+    </header>
+    <div class="term-info">
+      <p>
+        第 1 周周一：<code>{{ config.term.start_date or '未设置' }}</code>
+        · 共 {{ config.term.total_weeks }} 周
+        · 时区 {{ timezone }}
+      </p>
+      <p class="hint">
+        学期起始日在 <code>config.toml</code> 的 <code>[term].start_date</code>，
+        每学期手动改一次。课表本身存数据库，改完立即生效。
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <header>
+      <h2>课表内容</h2>
+      <span class="count">{{ counts.courses }} 门 · {{ counts.sessions }} 个时段</span>
+    </header>
+
+    <form class="courses-form" data-courses-form>
+      <p class="hint courses-help">
+        每行一门课的一次上课时段，格式：<br>
+        <code>周一 08:00-09:40 高等数学 教三201 1-16周</code><br>
+        可选后缀 <code>单周</code> / <code>双周</code>；课程名含空格时用
+        <code>|</code> 分隔：<code>周一 08:00-09:40 | 高等数学 A | 教三201 | 1-16周</code><br>
+        以 <code>#</code> 开头的行会被忽略。
+      </p>
+      <textarea name="text" rows="14" spellcheck="false"
+                aria-label="课表文本">{{ text }}</textarea>
+      <div class="courses-actions">
+        <button type="submit" class="button-primary">保存课表</button>
+        <span class="hint" data-courses-status></span>
+      </div>
+      <div class="courses-errors" data-courses-errors hidden></div>
+    </form>
+  </section>
+
+  <section class="panel panel--minor">
+    <header><h2>当前生效的时段</h2></header>
+    {% if courses %}
+      <table class="courses-table">
+        <thead>
+          <tr><th>课程</th><th>时段</th><th>周次</th><th>地点</th></tr>
+        </thead>
+        <tbody>
+          {% for course in courses %}
+            {% for session in course.sessions %}
+              <tr>
+                <td>{{ course.name }}</td>
+                <td>周{{ WEEKDAY_LABELS[session.weekday - 1] }} {{ session.start_time }}–{{ session.end_time }}</td>
+                <td>
+                  {{ session.start_week }}{% if session.end_week != session.start_week %}–{{ session.end_week }}{% endif %}周
+                  {% if session.week_parity == 'odd' %}单{% elif session.week_parity == 'even' %}双{% endif %}
+                </td>
+                <td>{{ session.location or course.location or '—' }}</td>
+              </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">还没有课表。填好上面的文本框保存即可。</p>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/courses.js" defer></script>
+{% endblock %}

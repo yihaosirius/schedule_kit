@@ -1,0 +1,29 @@
+# 行尾符策略 —— 这条对部署是硬要求，不是风格偏好。
+#
+# 开发机是 Windows，部署目标是 Linux。Git for Windows 默认 core.autocrlf=true，
+# 会在检出时把 LF 换成 CRLF。落到服务器上的 install.sh / backup.sh / systemd
+# 单元如果带 CRLF，会以 `$'\r': command not found` 或
+# `bad interpreter: No such file or directory` 的形式失败 —— 报错信息完全
+# 指不到真正原因，极难排查。
+#
+# 所以仓库内与检出一律 LF。Python / JavaScript / HTML 用 LF 在 Windows 上
+# 也没问题，PowerShell 同样不受影响。
+* text=auto eol=lf
+
+# 二进制文件不做换行转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+
+# 这些文件必须是 LF，显式再声明一遍，防止将来有人改上面的默认值
+*.sh       text eol=lf
+*.service  text eol=lf
+*.timer    text eol=lf
+*.sql      text eol=lf
+*.toml     text eol=lf
+Dockerfile text eol=lf
