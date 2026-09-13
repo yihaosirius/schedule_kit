@@ -12,7 +12,12 @@
   </nav>
 </header>
 
-<main class="layout layout--single" data-settings-page>
+{# 两栏：左为配置表单（主），右为侧栏（密钥 + 运行状态）。
+   侧栏面板必须包进 .layout__column —— 网格是按**行**排布的，直接往第 2 列丢
+   多个面板，第二个会从"第 1 行最高的单元格"下面开始，于是两栏之间裂开
+   一大片空白（原先就是这样）。 #}
+<main class="layout layout--settings" data-settings-page>
+  <div class="layout__column">
 
   {# ── LLM 配置 ───────────────────────────────────────────────────── #}
   <section class="panel">
@@ -95,6 +100,10 @@
     </form>
   </section>
 
+  </div>
+
+  <div class="layout__column">
+
   {# ── API 密钥 ───────────────────────────────────────────────────── #}
   <section class="panel">
     <header>
@@ -142,7 +151,7 @@
   </section>
 
   {# ── 运行状态 ───────────────────────────────────────────────────── #}
-  <section class="panel panel--minor">
+  <section class="panel">
     <header><h2>运行状态</h2></header>
     <table class="settings-table">
       <tbody>
@@ -174,6 +183,7 @@
       内存与磁盘数字每次打开本页时刷新，不做后台采集。
     </p>
   </section>
+  </div>
 </main>
 {% endblock %}
 

@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
+import pytest
 from httpx import AsyncClient
 
 
@@ -168,3 +170,110 @@ async def test_task_titles_are_html_escaped(session_client: AsyncClient) -> None
     html = (await session_client.get("/")).text
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
+
+
+# --------------------------------------------------------------------------- #
+# 布局契约
+# --------------------------------------------------------------------------- #
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CSS = PROJECT_ROOT / "app" / "static" / "css" / "app.css"
+TEMPLATES = PROJECT_ROOT / "app" / "templates"
+
+
+def _media_query_bodies(css: str) -> list[str]:
+    """取出所有 @media 块的内容（按花括号配对，够用且不依赖 CSS 解析器）。"""
+    bodies: list[str] = []
+    for match in re.finditer(r"@media[^{]*\{", css):
+        depth = 1
+        index = match.end()
+        while index < len(css) and depth:
+            if css[index] == "{":
+                depth += 1
+            elif css[index] == "}":
+                depth -= 1
+            index += 1
+        bodies.append(css[match.end() : index - 1])
+    return bodies
+
+
+def test_media_query_never_styles_bare_layout() -> None:
+    """两栏布局必须**显式选用**，不能靠"默认两栏 + 某页覆盖"。
+
+    实测踩过的坑：`.layout--single` 定义在媒体查询**之前**，而同优先级的
+    `.layout` 在媒体查询里又写了一遍 —— ≥900px 时后者胜出，本该单栏的四个
+    页面（设置、课表、草稿确认…）全被静默排成了两栏。CSS 覆盖失败没有任何
+    报错，只能靠断言挡住。
+    """
+    for body in _media_query_bodies(CSS.read_text(encoding="utf-8")):
+        assert ".layout {" not in body, (
+            "媒体查询里不要再给裸 .layout 写规则，它会静默覆盖单栏页面。"
+            "两栏请用 .layout--split / .layout--settings。"
+        )
+
+
+def test_split_layouts_are_the_only_two_column_layouts() -> None:
+    css = CSS.read_text(encoding="utf-8")
+    two_column = re.findall(r"grid-template-columns:\s*minmax\(0,\s*1fr\)\s+(\d+)px", css)
+    assert two_column, "找不到两栏布局定义"
+
+    for name in (".layout--split", ".layout--settings"):
+        block = css.split(f"{name} {{")[1].split("}")[0]
+        assert "grid-template-columns" in block, f"{name} 应定义自己的列宽"
+
+
+def test_layout_classes_used_in_templates_are_defined_in_css() -> None:
+    """模板里用了 CSS 里不存在的 layout 类 —— 典型的改名后漏改。"""
+    css = CSS.read_text(encoding="utf-8")
+    for template in sorted(TEMPLATES.glob("*.html")):
+        text = template.read_text(encoding="utf-8")
+        for attr in re.findall(r'class="(layout[^"]*)"', text):
+            for token in attr.split():
+                assert f".{token}" in css, f"{template.name} 用了 CSS 里没有的 .{token}"
+
+
+async def test_task_page_uses_the_split_layout(session_client: AsyncClient) -> None:
+    html = (await session_client.get("/")).text
+    assert 'class="layout layout--split"' in html
+
+
+async def test_settings_page_stacks_its_sidebar(session_client: AsyncClient) -> None:
+    """侧栏的多个面板必须包在同一个 .layout__column 里。
+
+    网格是**按行**排布的：把两个面板分别丢进第 2 列的第 1、2 行，第二个会从
+    "第 1 行最高的单元格"下面开始 —— 于是两栏之间裂开一大片空白。用户截图里
+    就是这个现象。
+    """
+    html = (await session_client.get("/settings")).text
+    assert 'class="layout layout--settings"' in html
+
+    columns = html.split('<div class="layout__column">')
+    assert len(columns) == 3, f"应当恰好有两个 layout__column，实际 {len(columns) - 1}"
+
+    sidebar = columns[2]  # 第二个容器的内容
+    assert "API 密钥" in sidebar, "密钥面板应在侧栏容器内"
+    assert "运行状态" in sidebar, "运行状态面板应与密钥面板同容器，不能各自独占一行"
+
+
+@pytest.mark.parametrize("path", ["/courses"])
+async def test_content_pages_use_a_single_column(
+    session_client: AsyncClient, path: str
+) -> None:
+    """课表、草稿这类内容页是单栏 —— 不该被任何两栏布局波及。"""
+    html = (await session_client.get(path)).text
+    match = re.search(r'<main class="(layout[^"]*)"', html)
+    assert match, "页面应有 <main class=\"layout...\">"
+    classes = match.group(1)
+    assert "--split" not in classes and "--settings" not in classes, (
+        f"{path} 应当是单栏，实际用了 {classes!r}"
+    )
+
+
+async def test_draft_page_uses_a_single_column(app, session_client: AsyncClient) -> None:
+    from tests.test_ingest import image_ingest, use_llm
+
+    use_llm(app, [{"title": "x", "category": "other", "due_at": None, "priority": 3}])
+    _, draft = await image_ingest(session_client)
+
+    html = (await session_client.get(f"/drafts/{draft['draft_id']}")).text
+    match = re.search(r'<main class="(layout[^"]*)"', html)
+    assert match and "--split" not in match.group(1)

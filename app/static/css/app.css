@@ -123,13 +123,52 @@ button { font: inherit; }
 }
 .topbar nav a:hover { background: var(--surface-2); color: var(--text); }
 
+/* ── 布局 ─────────────────────────────────────────────────────────
+ *
+ * 三种形态，各自由页面显式声明，不要靠"默认两栏 + 某页覆盖"那种写法 ——
+ * 之前 `.layout--single` 就因为在媒体查询**之前**定义、而同优先级的
+ * `.layout` 在媒体查询里又写了一遍，导致 ≥900px 时被静默覆盖：
+ * 本该单栏的页面全挤在 760px 宽度里排成了两栏。
+ */
 .layout {
+  /* 默认单栏：课表、草稿确认这类内容页 */
   display: grid;
   gap: var(--gap);
   padding: var(--gap);
   padding-bottom: calc(var(--gap) + env(safe-area-inset-bottom));
-  max-width: 1180px;
+  max-width: 860px;
   margin: 0 auto;
+}
+
+/* 栏内纵向堆叠。
+   两栏布局的侧栏必须用它包起来：网格是**按行**排布的，直接往第 2 列丢
+   多个面板，第二个会从"第 1 行最高的单元格"下面开始，于是两栏之间裂开
+   一大片空白（设置页原先就是这样）。 */
+.layout__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-width: 0;
+}
+
+/* 首页：有序表主栏 + 无序表窄侧栏（无序表权重更小） */
+@media (min-width: 900px) {
+  .layout--split {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    align-items: start;
+    max-width: 1180px;
+  }
+  .layout--split > .panel--major { grid-column: 1; }
+  .layout--split > .panel--minor { grid-column: 2; }
+}
+
+/* 控制台：配置表单主栏 + 侧栏（密钥、运行状态） */
+@media (min-width: 900px) {
+  .layout--settings {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    align-items: start;
+    max-width: 1180px;
+  }
 }
 
 .panel {
@@ -318,7 +357,7 @@ details.panel[open] > summary { border-bottom: 1px solid var(--border); }
 }
 
 /* ── 草稿确认页 ───────────────────────────────────────────────────── */
-.layout--single { grid-template-columns: minmax(0, 1fr); max-width: 760px; }
+/* 布局姿态在 .layout 系列里统一定义（见文件前部），这里不再重复 */
 
 .draft-image {
   padding: 12px 14px;
@@ -562,14 +601,6 @@ details.panel[open] > summary { border-bottom: 1px solid var(--border); }
 }
 
 /* ── 桌面：两栏，有权重差 ─────────────────────────────────────────── */
-@media (min-width: 900px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr) 320px;
-    align-items: start;
-  }
-  .panel--major { grid-column: 1; }
-  .panel--minor { grid-column: 2; }
-}
 
 /* ── 工具类 ───────────────────────────────────────────────────────── */
 .visually-hidden {
