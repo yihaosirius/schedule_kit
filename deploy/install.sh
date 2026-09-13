@@ -106,19 +106,48 @@ print(node)
 PY
 }
 
-# 用服务账号**实际写一个文件**，而不是只看权限位。
-# 控制台保存配置依赖目录写权限（原子写要建锁文件与临时文件），
-# 只 chown 配置文件而目录属 root 时，保存会 500 —— 这个坑实际踩过。
+# 配置文件的属主修正。
+#
+# 必须连**锁文件**一起处理：本脚本以 root 运行，而 set-password 与
+# generate_secret_key 都会写配置 → 创建 config.toml.lock（属主 root:root 0644）。
+# 服务账号对它的权限是只读，而 update_section 要用 "a+b" 打开它 → EACCES。
+# 只 chown 主文件修不了这个（实测踩过：目录权限改对了仍然报
+# Permission denied: '/etc/schedulekit/config.toml.lock'）。
+#
+# 直接删掉最省事：锁文件只在写入期间短暂存在，缺失时会自动重建。
+sk_fix_config_perms() {
+  rm -f "${CONFIG_FILE}.lock"
+  chown "${APP_USER}:${APP_GROUP}" "${CONFIG_FILE}"
+  chmod 0600 "${CONFIG_FILE}"
+}
+#
+# 控制台保存配置依赖两件容易被忽略的事：
+#   1. 能在配置**目录**里新建文件（锁文件 + 原子写临时文件）
+#   2. 能**打开已存在**的锁文件写入
+# 第 2 点是实测踩到的坑：install.sh 以 root 运行时会跑 set-password，
+# 那一步创建了 config.toml.lock 属主 root:root 0644；服务账号对它是只读，
+# 打开写入就 EACCES。只 chown 目录修不了这个 —— 目录权限只管新建文件。
 sk_probe_write() {
   local dir="$1" what="$2"
   local probe="${dir}/.write-probe.$$"
-  if runuser -u "${APP_USER}" -- touch "${probe}" 2>/dev/null; then
-    rm -f "${probe}"
+  if runuser -u "${APP_USER}" -- sh -c "touch '${probe}' && echo x >> '${probe}' && rm -f '${probe}'" 2>/dev/null; then
     info "${APP_USER} 可写 ${dir}　（${what}）"
   else
     fail "${APP_USER} 无法写入 ${dir} —— ${what} 会失败。
      修复：chown ${APP_USER}:${APP_GROUP} ${dir} && chmod 0755 ${dir}"
   fi
+}
+
+# 专测锁文件：它的属主与目录无关，是 root 跑 CLI 时留下的。
+sk_probe_lock() {
+  local lock="${CONFIG_FILE}.lock"
+  if ! runuser -u "${APP_USER}" -- sh -c ": >> '${lock}'" 2>/dev/null; then
+    fail "${APP_USER} 无法写入 ${lock} —— 控制台保存配置会 500。
+     该文件由 root 运行 CLI 时创建，属主是 root:root，服务账号只有读权限。
+     修复：rm -f ${lock}   （缺失时会自动重建，届时属主即为服务账号）"
+  fi
+  rm -f "${lock}"
+  info "${APP_USER} 可写配置锁文件　（控制台保存 LLM 配置）"
 }
 
 # ── 1. 基础依赖 ─────────────────────────────────────────────────────
@@ -242,8 +271,7 @@ else
   step "沿用已有 ${CONFIG_FILE}"
 fi
 
-chown "${APP_USER}:${APP_GROUP}" "${CONFIG_FILE}"
-chmod 0600 "${CONFIG_FILE}"
+sk_fix_config_perms
 info "config.toml 权限：$(stat -c '%a %U:%G' "${CONFIG_FILE}")"
 
 # 非 --init 路径下配置可能是手写的，仍要确保密钥不缺失
@@ -258,8 +286,7 @@ cfg = Config(sys.argv[1])
 cfg.generate_secret_key()
 print("    已生成 [auth].secret_key")
 PY
-  chown "${APP_USER}:${APP_GROUP}" "${CONFIG_FILE}"
-  chmod 0600 "${CONFIG_FILE}"
+  sk_fix_config_perms
 fi
 
 step "应用数据库迁移"
@@ -269,6 +296,7 @@ chown -R "${APP_USER}:${APP_GROUP}" "${DATA_DIR}"
 step "验证服务账号可写关键目录"
 sk_probe_write "${ETC_DIR}" "控制台保存 LLM 配置"
 sk_probe_write "${DATA_DIR}" "数据库与上传图片"
+sk_probe_lock
 
 # ── 6. systemd 服务 ─────────────────────────────────────────────────
 step "安装 systemd 服务"

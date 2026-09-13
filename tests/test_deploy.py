@@ -538,6 +538,41 @@ def test_install_probes_writability_as_the_service_user() -> None:
     assert 'sk_probe_write "${DATA_DIR}"' in text, "要探测数据目录"
 
 
+def test_install_handles_the_root_owned_lock_file() -> None:
+    """实测踩过：目录权限改对了，保存仍报
+
+        PermissionError: [Errno 13] Permission denied:
+        '/etc/schedulekit/config.toml.lock'
+
+    因为锁文件是本脚本以 root 身份跑 set-password / generate_secret_key 时
+    创建的（属主 root:root 0644），服务账号只能读、不能以 "a+b" 打开。
+    目录权限只管**新建**文件，管不到这个已存在的文件。
+    """
+    text = read(INSTALL_SH)
+
+    assert "sk_fix_config_perms" in text, "应有一个统一修正配置权限的函数"
+    body = text.split("sk_fix_config_perms() {")[1].split("\n}")[0]
+    assert "config.toml.lock" in body or '"${CONFIG_FILE}.lock"' in body, (
+        "修正函数必须处理锁文件，不能只 chown 主文件"
+    )
+    assert "rm -f" in body, "最省事的做法是删掉锁文件（缺失时会自动重建）"
+
+    # 两个会以 root 写配置的地方之后都要调用它
+    assert text.count("sk_fix_config_perms\n") >= 2, (
+        "set-password 与 generate_secret_key 之后都要修正权限"
+    )
+
+
+def test_install_probes_the_lock_file_specifically() -> None:
+    """锁文件的属主与目录权限无关，必须单独探。"""
+    text = read(INSTALL_SH)
+    assert "sk_probe_lock" in text
+    assert 'sk_probe_lock\n' in text, "验证步骤里要真的调用它"
+
+    body = text.split("sk_probe_lock() {")[1].split("\n}")[0]
+    assert '>>' in body, "要模拟应用的真实操作（以追加方式打开锁文件）"
+
+
 def test_etc_dir_stays_traversable_for_caddy() -> None:
     """Caddy 以另一个用户运行，要能穿到 certs/ 读证书 —— 别改成 0700。"""
     text = read(INSTALL_SH)

@@ -186,29 +186,40 @@ duckdns_token = ""
 
 **④ 控制台点保存提示 `Internal Server Error`**
 
-`/etc/schedulekit` 的**属主**必须是服务账号。
+先看日志确认是哪个文件被拒：
 
-控制台保存 `[llm]` 配置时要就地改写 `config.toml`，而原子写需要在该目录里
-创建锁文件（`config.toml.lock`）与临时文件——这是**目录写权限**，只把配置文件
-本身 chown 给服务账号是不够的。
+```bash
+journalctl -u schedulekit -n 60 | grep -A 20 'request.error'
+```
+
+控制台保存 `[llm]` 配置要就地改写 `config.toml`，涉及**两个**容易被忽略的权限：
+
+**a) 配置目录要能新建文件**（原子写需要建锁文件与临时文件）
 
 ```bash
 sudo chown schedulekit:schedulekit /etc/schedulekit
 ```
 
-**不用重启**，权限变更对进行中的进程立即生效，改完直接回浏览器重试。
+**b) 锁文件自身要能被服务账号写入**
+
+`install.sh` 以 root 运行时执行 `set-password` 会写配置，从而创建
+`config.toml.lock`，属主是 **root:root 0644**。服务账号对它是只读，
+而应用要用追加方式打开它 → `PermissionError: [Errno 13] ... config.toml.lock`。
+
+**目录权限只管新建文件，管不到这个已存在的文件** —— 两个都要处理：
+
+```bash
+sudo rm -f /etc/schedulekit/config.toml.lock
+sudo chown schedulekit:schedulekit /etc/schedulekit
+```
+
+**都不用重启**，权限变更对进行中的进程立即生效，改完直接回浏览器重试。
 
 > 目录保持 `0755`：Caddy 以另一个用户运行，需要能遍历进去读 `certs/`。
 >
-> 新版 `install.sh` 会自动设好属主，并在部署时**以服务账号身份实际试写一次**
-> （`==> 验证服务账号可写关键目录`），不通过就直接中断——避免把问题留到
-> 用户点保存时才暴露。
-
-排查具体原因看 trace id：
-
-```bash
-journalctl -u schedulekit | grep -A 30 'request.error'
-```
+> 新版 `install.sh` 会自己处理这两件事，并在部署时**以服务账号身份实际试写**
+> （`==> 验证服务账号可写关键目录`，含单独探测锁文件），不通过就直接中断——
+> 避免把问题留到用户点保存时才暴露。
 
 ## 卸载
 
