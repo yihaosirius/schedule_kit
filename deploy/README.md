@@ -7,30 +7,44 @@
 
 按这个顺序做，每步都有明确的成功标志。
 
-### ① 把代码送到服务器（约 2 分钟）
-
-**注意：项目当前不是 git 仓库**，所以 `git clone` 还走不通。三选一：
+### ① 把代码送到服务器（约 1 分钟）
 
 ```bash
-# 方式 A（推荐，之后能 git pull 更新）：先在本地建仓并推到私有仓库
-#   本地：git init && git add . && git commit -m init && git remote add origin <你的私有仓库>
-#   服务器：
-git clone <你的私有仓库> schedule_kit && cd schedule_kit
+git clone https://github.com/yihaosirius/schedule_kit /root/schedule_kit
+cd /root/schedule_kit
+```
 
-# 方式 B：直接同步（本地执行，需要 rsync）
-rsync -av --exclude '.venv' --exclude 'data' --exclude '.git' \
-      ./ root@<VPS_IP>:/root/schedule_kit/
+以后更新代码：
 
-# 方式 C：打个包传过去
-tar --exclude=.venv --exclude=data --exclude=.git -czf sk.tar.gz .
-scp sk.tar.gz root@<VPS_IP>:/root/ && ssh root@<VPS_IP> \
-  'mkdir -p /root/schedule_kit && tar -xzf /root/sk.tar.gz -C /root/schedule_kit'
+```bash
+cd /root/schedule_kit && git pull && sudo bash deploy/install.sh
 ```
 
 **成功标志**：服务器上 `/root/schedule_kit/deploy/install.sh` 存在。
 
-> 不要传 `config.toml` 和 `data/` —— 前者含密钥，后者是本地开发数据。
-> 部署脚本会生成全新的生产配置。
+<details>
+<summary>不想用 git？用 rsync / scp 也行</summary>
+
+```bash
+# rsync（本地执行）
+rsync -av --exclude '.venv' --exclude 'data' --exclude 'config.toml' \
+      ./ root@<VPS_IP>:/root/schedule_kit/
+
+# 或者打包传
+tar --exclude=.venv --exclude=data --exclude=config.toml -czf sk.tar.gz .
+scp sk.tar.gz root@<VPS_IP>:/root/ && ssh root@<VPS_IP> \
+  'mkdir -p /root/schedule_kit && tar -xzf /root/sk.tar.gz -C /root/schedule_kit'
+```
+
+</details>
+
+> **不要把 `config.toml` 传上去。** 它含密钥（`secret_key`、DuckDNS token），
+> 而且是本地开发配置。部署脚本会在服务器上生成全新的生产配置。
+> `data/` 同理，那是本地数据。
+
+> **行尾符**：仓库根目录的 `.gitattributes` 已强制 `eol=lf`。如果用 scp/rsync
+> 而非 git，请确认传输没做 CRLF 转换——`install.sh` 带 CR 会在服务器上以
+> `$'\r': command not found` 失败。
 
 ### ② 拿到一个免费域名（约 3 分钟）
 
