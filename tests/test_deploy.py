@@ -110,6 +110,19 @@ def test_every_template_placeholder_is_substituted() -> None:
     assert template_placeholders, "模板里应当有占位符"
 
 
+def test_template_comments_do_not_contain_placeholders() -> None:
+    """sed 会把注释里的占位符也替换掉，服务器上的说明就变成读不懂的样子。
+
+    实测踩过：模板头部用 ``__DOMAIN__`` 标注含义，渲染后变成
+    ``# canisa1ph.duckdns.org   [tls].domain``。
+    """
+    for line in read(CADDY_TEMPLATE).splitlines():
+        if line.lstrip().startswith("#"):
+            assert not re.search(r"__[A-Z_]+__", line), (
+                f"注释里不该出现占位符字面量（会被 sed 替换掉）：{line.strip()}"
+            )
+
+
 def _strip_comments(text: str) -> str:
     """去掉整行注释，只留真正的配置。"""
     return "\n".join(
@@ -148,6 +161,49 @@ def test_caddy_sets_security_headers() -> None:
 def test_caddy_forwards_the_real_client_ip() -> None:
     """登录限流按 IP 计数，反代必须把真实客户端 IP 传下去。"""
     assert "X-Real-IP" in read(CADDY_TEMPLATE)
+
+
+#: 标准 Caddy 构建里**没有**、必须靠第三方插件的模块。
+#: 用了它们会让 ``caddy validate`` 直接失败。
+NON_BUILTIN_CADDY_MODULES = {
+    "output journal": (
+        "caddy.logging.writers.journal 属于第三方插件，标准构建未注册该模块。"
+        "改用 output stdout —— Caddy 由 systemd 托管，stdout 就是 journald。"
+    ),
+}
+
+#: 版本相关指令：能用但不值得赌。
+VERSION_DEPENDENT_DIRECTIVES = {
+    "request_body": "Caddy 2.10 才引入；应用侧已做大小限制并返回 413，无需重复",
+}
+
+
+def test_caddyfile_avoids_plugin_only_modules() -> None:
+    """实际踩过：`output journal` 导致 caddy validate 失败，部署中断在最后一步。
+
+    报错是 ``module not registered: caddy.logging.writers.journal``，
+    看不出"这需要装插件"。
+    """
+    config = _strip_comments(read(CADDY_TEMPLATE))
+    for needle, reason in NON_BUILTIN_CADDY_MODULES.items():
+        assert needle not in config, f"Caddyfile 用了非内置模块 {needle!r}：{reason}"
+
+
+def test_caddyfile_avoids_version_dependent_directives() -> None:
+    config = _strip_comments(read(CADDY_TEMPLATE))
+    for needle, reason in VERSION_DEPENDENT_DIRECTIVES.items():
+        assert needle not in config, f"Caddyfile 用了版本相关指令 {needle!r}：{reason}"
+
+
+def test_caddyfile_logs_to_stdout() -> None:
+    config = _strip_comments(read(CADDY_TEMPLATE))
+    assert "output stdout" in config
+
+
+def test_caddyfile_keeps_health_check_logs_quiet() -> None:
+    """健康检查很频繁，不该刷满日志。"""
+    config = _strip_comments(read(CADDY_TEMPLATE))
+    assert "log_skip" in config
 
 
 # --------------------------------------------------------------------------- #
@@ -393,3 +449,40 @@ def test_install_sh_sets_modes_for_generated_scripts() -> None:
     assert "chmod 0700 /etc/schedulekit/duckdns-update.sh" in text, (
         "含 DuckDNS token 的脚本必须是 0700"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Caddy 配置的替换必须"先校验后生效"
+# --------------------------------------------------------------------------- #
+def test_install_validates_caddyfile_before_replacing_it() -> None:
+    """先写 /etc/caddy/Caddyfile 再校验，会把"重跑安装"变成"弄挂正常服务"。
+
+    坏配置一旦落盘，Caddy 会一直起不来，而且旧配置已经没了。
+    正确顺序是渲染到临时文件 → 校验 → 通过才 install 覆盖。
+    """
+    text = read(INSTALL_SH)
+    assert "mktemp" in text, "应先渲染到临时文件"
+    assert 'caddy validate --config "${tmp_caddyfile}"' in text, "应校验临时文件"
+
+    validate_at = text.index('caddy validate --config "${tmp_caddyfile}"')
+    install_at = text.index('install -m 0644 "${tmp_caddyfile}" /etc/caddy/Caddyfile')
+    assert validate_at < install_at, "必须先校验，后覆盖 /etc/caddy/Caddyfile"
+
+
+def test_install_confirms_caddy_actually_started() -> None:
+    """reload 成功不代表进程活着 —— 配置有问题时 Caddy 会起来又退出。"""
+    text = read(INSTALL_SH)
+    assert "systemctl is-active --quiet caddy" in text
+    assert "journalctl -u caddy" in text, "启动失败时要打印 Caddy 自己的日志"
+
+
+def test_install_reports_the_caddy_version() -> None:
+    """出问题时第一个要问的就是版本（指令可用性随版本变化）。"""
+    assert "caddy version" in read(INSTALL_SH)
+
+
+def test_install_probes_https_from_the_outside() -> None:
+    """只检查本机 /healthz 会漏掉"安全组没放行"这类问题。"""
+    text = read(INSTALL_SH)
+    assert "外部 HTTPS 可达" in text
+    assert "安全组" in text, "失败提示要指向服务商安全组那一层"

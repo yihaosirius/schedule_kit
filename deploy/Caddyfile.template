@@ -1,24 +1,36 @@
 # ScheduleKit 的 Caddy 站点配置模板。
 #
-# install.sh 会用 config.toml 里的值替换下面的占位符后写入 /etc/caddy/Caddyfile：
-#   __DOMAIN__   [tls].domain
-#   __PORT__     [tls].port
-#   __CERT__     [tls].cert_dir + fullchain.pem
-#   __KEY__      [tls].cert_dir + privkey.pem
-#   __BACKEND__  [server].listen_host:listen_port（uvicorn）
+# install.sh 会用 config.toml 里的值替换本模板中的占位符，然后写入
+# /etc/caddy/Caddyfile。占位符与来源的对应关系：
+#
+#   [tls].domain                 -> 站点域名
+#   [tls].port                   -> 监听端口
+#   [tls].cert_dir/fullchain.pem -> 证书链
+#   [tls].cert_dir/privkey.pem   -> 私钥
+#   [server].listen_host:port    -> uvicorn 反代目标
+#
+# （上面刻意不写占位符字面量：sed 会把注释里的也一起替换，
+#   结果服务器上的注释会变成读不懂的样子。）
 #
 # 几个刻意的选择：
 #   * 用显式 tls <证书路径> 而不是让 Caddy 自动 ACME —— 证书由 acme.sh 走
 #     DNS-01 签发，不需要 80/443 入站，也就不触发大陆备案条件。
-#   * 只监听 __PORT__，不额外开 80/443。
+#   * 只监听一个非标端口，不额外开 80/443。
 #   * uvicorn 只监听回环，外部无法绕过 Caddy 直连应用。
 
 {
 	# 关掉管理端点，单机不需要
 	admin off
-	# 日志走 journald，交给 journalctl 统一收
+
+	# 日志写 stdout，由 systemd 收进 journald。
+	#
+	# 这里**不能**写 `output journal`：那个 writer 属于第三方插件
+	# （模块名 caddy.logging.writers.journal），标准构建里没有，
+	# 会导致 `caddy validate` 直接失败：
+	#   module not registered: caddy.logging.writers.journal
+	# 走 stdout 的效果完全一样 —— Caddy 由 systemd 托管，stdout 就是 journald。
 	log {
-		output journal
+		output stdout
 		format console
 	}
 }
@@ -39,10 +51,9 @@ https://__DOMAIN__:__PORT__ {
 		-Server
 	}
 
-	# 上传接口吃 base64 图片，放宽请求体上限（与 [llm].max_image_bytes 对应）
-	request_body {
-		max_size 24MB
-	}
+	# 请求体大小限制交给应用自己管（超限返回 413），这里不设 request_body：
+	# 该指令是 Caddy 2.10 才引入的，为一个冗余的纵深防御去赌版本不划算。
+	# reverse_proxy 默认是流式转发，不会把整个 body 缓冲进内存。
 
 	reverse_proxy __BACKEND__ {
 		# 让应用拿到真实客户端 IP（登录限流按 IP 计数）

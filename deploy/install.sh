@@ -348,15 +348,37 @@ else
   chgrp caddy "${CERT_DIR}" 2>/dev/null || true
 
   step "渲染 Caddyfile"
+  info "caddy：$(caddy version | head -1)"
+
+  tmp_caddyfile="$(mktemp)"
   sed -e "s|__DOMAIN__|${TLS_DOMAIN}|g" \
       -e "s|__PORT__|${TLS_PORT}|g" \
       -e "s|__CERT__|${CERT_PATH}|g" \
       -e "s|__KEY__|${KEY_PATH}|g" \
       -e "s|__BACKEND__|$(cfg_field server.listen_host):$(cfg_field server.listen_port)|g" \
-      "${OPT_DIR}/deploy/Caddyfile.template" > /etc/caddy/Caddyfile
-  caddy validate --config /etc/caddy/Caddyfile >/dev/null || fail "Caddyfile 校验失败"
+      "${OPT_DIR}/deploy/Caddyfile.template" > "${tmp_caddyfile}"
+
+  # 先校验临时文件，通过后才落到 /etc/caddy/Caddyfile。
+  # 反过来的话，一份坏配置会覆盖掉正在工作的那份 —— 把"重跑安装"变成
+  # "把原本正常的服务弄挂"，而且 Caddy 会一直起不来。
+  if ! validate_output="$(caddy validate --config "${tmp_caddyfile}" 2>&1)"; then
+    printf '%s\n' "${validate_output}" | sed 's/^/    /' >&2
+    rm -f "${tmp_caddyfile}"
+    fail "Caddyfile 校验失败（上面是 caddy 的原始报错）。
+     最常见原因是模板用了标准构建里没有的模块 —— 例如 output journal
+     需要第三方插件。可用 \`caddy list-modules\` 查看本机支持哪些。"
+  fi
+  printf '%s\n' "${validate_output}" | sed 's/^/    /'
+  install -m 0644 "${tmp_caddyfile}" /etc/caddy/Caddyfile
+  rm -f "${tmp_caddyfile}"
+
   systemctl enable caddy >/dev/null 2>&1 || true
   systemctl reload caddy 2>/dev/null || systemctl restart caddy
+  sleep 1
+  if ! systemctl is-active --quiet caddy; then
+    journalctl -u caddy -n 30 --no-pager >&2
+    fail "Caddy 启动失败，上面是最近日志"
+  fi
   info "Caddy 已按 ${TLS_DOMAIN}:${TLS_PORT} 配置"
 
   step "配置防火墙"
@@ -406,6 +428,19 @@ if curl -fsS "http://${LISTEN}/healthz" >/dev/null; then
 else
   journalctl -u "${SERVICE}" -n 40 --no-pager >&2
   fail "本机健康检查失败"
+fi
+
+# 从外部走一遍 HTTPS。失败不算致命：部分云厂商的 NAT 不支持从实例内
+# 回环访问自己的公网 IP，服务本身其实是好的。
+if [[ "${SKIP_TLS}" -eq 0 ]]; then
+  PUBLIC_URL="$(cfg_field server.public_url)"
+  if curl -fsS --max-time 15 "${PUBLIC_URL}/healthz" >/dev/null 2>&1; then
+    info "外部 HTTPS 可达：${PUBLIC_URL}"
+  else
+    warn "外部 HTTPS 检查失败：${PUBLIC_URL}/healthz"
+    warn "  若浏览器能打开，说明只是本机回环 NAT 的问题，可忽略。"
+    warn "  若浏览器也打不开，先检查服务商安全组是否放行了 ${TLS_PORT}/tcp（那是独立于 ufw 的另一道墙）。"
+  fi
 fi
 
 PUBLIC_URL="$(cfg_field server.public_url)"
