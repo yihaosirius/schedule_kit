@@ -176,3 +176,63 @@ uv run python -m app.cli show --json
 迁移 `0002_session_location.sql` 把它下沉到时段级别，
 `courses.location` 保留为默认值。
 
+---
+
+## 6. 怎么在本地校验 Caddyfile（不必等部署到服务器才发现写错）
+
+Caddy 有 Windows 构建，而 `caddy validate` 是纯配置检查，跨平台等价。
+部署目标版本可以用 `caddy version` 问出来，本地下同一个版本即可对齐。
+
+```powershell
+# 1. 下 Caddy（用 Node，因为本机 Schannel 坏了，curl 走不通）
+node -e "..."   # 见下方「下载脚本」；落盘到 .caddy-check/（已在 .gitignore）
+# 2. 解压
+Expand-Archive .caddy-check/caddy.zip -DestinationPath .caddy-check -Force
+
+# 3. 生成自签证书 —— validate 会真的去加载 tls 指定的文件，缺了会失败
+$rsa = [System.Security.Cryptography.RSA]::Create(2048)
+$req = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
+    "CN=test.local", $rsa,
+    [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+    [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+$cert = $req.CreateSelfSigned([DateTimeOffset]::Now.AddDays(-1), [DateTimeOffset]::Now.AddDays(30))
+Set-Content .caddy-check/certs/fullchain.pem -Value $cert.ExportCertificatePem() -Encoding ascii
+Set-Content .caddy-check/certs/privkey.pem -Value $rsa.ExportPkcs8PrivateKeyPem() -Encoding ascii
+
+# 4. 渲染模板后校验
+.caddy-check/caddy.exe validate --config <渲染结果> --adapter caddyfile
+```
+
+### 三个实测踩到的坑
+
+**① 文件名决定配置格式。** Caddy 只在文件名为 `Caddyfile` 或以 `.caddyfile`
+结尾时才用 caddyfile adapter，其余一律当 JSON。所以校验 `mktemp` 出来的
+`/tmp/tmp.XXXX` 必须显式加 `--adapter caddyfile`，否则会报：
+
+```
+config is not valid JSON: invalid character '#' looking for beginning of value
+```
+
+这个坑真的漏到生产部署里去过（`install.sh` 的"先校验后落盘"改动引入的）。
+
+**② `caddy validate` 会加载证书文件。** 路径不存在就直接失败，
+所以本地校验必须先造一对自签证书，否则测不出配置本身对不对。
+
+**③ PowerShell 的 `Select-Object -First N` 会提前终止管道并杀掉原生命程**，
+`$LASTEXITCODE` 随之失真。我因此一度误判"校验通过"，实际是 exit=1。
+**校验命令必须完整消费输出**：
+
+```powershell
+& $caddy validate ... > out.log 2>&1
+$code = $LASTEXITCODE      # 这样才可信
+Get-Content out.log | Select-String "^Error"
+```
+
+**④ `output journal` 不是内置模块。** 标准 Caddy 构建里没有
+`caddy.logging.writers.journal`（属第三方插件），写了会让 validate 直接失败。
+用 `output stdout` —— Caddy 由 systemd 托管，stdout 就是 journald。
+
+改 Caddyfile 模板后，**先在本地跑一遍 validate 再推**。这条已经写进
+`tests/test_deploy.py` 的断言里（禁止非内置模块、必须带 `--adapter`），
+但那只能挡住已知的坑，跑一遍真校验才挡得住未知的。
+

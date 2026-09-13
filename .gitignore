@@ -25,6 +25,9 @@ __pycache__/
 .pytest-tmp/
 pytest-cache-files-*/
 
+# 本地校验 Caddyfile 用的 Caddy 二进制（约 64MB，需要时重新下载）
+.caddy-check/
+
 # 早期排查环境时留下的探测残留（沙箱里删不掉）
 py_tmp_probe/
 tmpjs_ydh03/
