@@ -469,6 +469,26 @@ def test_install_validates_caddyfile_before_replacing_it() -> None:
     assert validate_at < install_at, "必须先校验，后覆盖 /etc/caddy/Caddyfile"
 
 
+def test_validate_passes_the_adapter_explicitly() -> None:
+    """Caddy 靠**文件名**判断配置格式。
+
+    ``caddy validate --config /tmp/tmp.XXXX`` 会被当 JSON 解析，然后在
+    Caddyfile 第一行注释上失败：
+      ``config is not valid JSON: invalid character '#' ... did you mean to
+      use a config adapter?``
+    —— 这个坑实际踩过（是"先校验后落盘"那次改动引入的）。
+    """
+    text = read(INSTALL_SH)
+    validate_line = next(
+        (line for line in text.splitlines() if "caddy validate" in line and not line.strip().startswith("#")),
+        None,
+    )
+    assert validate_line is not None, "找不到 caddy validate 调用"
+    assert "--adapter caddyfile" in validate_line, (
+        f"校验临时文件时必须显式指定 adapter，否则会被当 JSON 解析：{validate_line.strip()}"
+    )
+
+
 def test_install_confirms_caddy_actually_started() -> None:
     """reload 成功不代表进程活着 —— 配置有问题时 Caddy 会起来又退出。"""
     text = read(INSTALL_SH)

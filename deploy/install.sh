@@ -361,12 +361,19 @@ else
   # 先校验临时文件，通过后才落到 /etc/caddy/Caddyfile。
   # 反过来的话，一份坏配置会覆盖掉正在工作的那份 —— 把"重跑安装"变成
   # "把原本正常的服务弄挂"，而且 Caddy 会一直起不来。
-  if ! validate_output="$(caddy validate --config "${tmp_caddyfile}" 2>&1)"; then
+  #
+  # --adapter caddyfile 不能省：Caddy 靠文件名判断格式（仅当文件叫 Caddyfile
+  # 或以 .caddyfile 结尾时才用 caddyfile adapter），而 mktemp 出来的
+  # /tmp/tmp.XXXX 没有扩展名，会被当 JSON 解析，然后在第一行注释上炸掉：
+  #   config is not valid JSON: invalid character '#' ...
+  if ! validate_output="$(caddy validate --config "${tmp_caddyfile}" --adapter caddyfile 2>&1)"; then
     printf '%s\n' "${validate_output}" | sed 's/^/    /' >&2
     rm -f "${tmp_caddyfile}"
     fail "Caddyfile 校验失败（上面是 caddy 的原始报错）。
-     最常见原因是模板用了标准构建里没有的模块 —— 例如 output journal
-     需要第三方插件。可用 \`caddy list-modules\` 查看本机支持哪些。"
+     常见原因：
+       ① 用了标准构建里没有的模块（如 output journal 需要第三方插件）
+          —— 可用 \`caddy list-modules\` 查看本机支持哪些
+       ② 用了当前版本不支持的指令 —— 用 \`caddy version\` 确认版本"
   fi
   printf '%s\n' "${validate_output}" | sed 's/^/    /'
   install -m 0644 "${tmp_caddyfile}" /etc/caddy/Caddyfile
