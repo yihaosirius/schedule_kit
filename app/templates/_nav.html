@@ -1,0 +1,18 @@
+{# 全站统一导航。
+   由 base.html 的 topbar 引入，各页面不再自己写 —— 之前每个页面各写各的，
+   导致「退出」只在首页有、标签也各不相同。
+
+   `active` 由页面路由传入：tasks / courses / settings / draft。
+   在非首页上把首页入口显式写成「← 主页」，避免"任务"这个标签到底是
+   当前页还是返回入口分不清。 #}
+<nav class="topnav">
+  {% if active == 'tasks' %}
+    <a href="/" class="is-current" aria-current="page">任务</a>
+  {% else %}
+    <a href="/" class="topnav__home">← 主页</a>
+  {% endif %}
+
+  <a href="/courses"{% if active == 'courses' %} class="is-current" aria-current="page"{% endif %}>课表</a>
+  <a href="/settings"{% if active == 'settings' %} class="is-current" aria-current="page"{% endif %}>设置</a>
+  <a href="#" data-action="logout">退出</a>
+</nav>

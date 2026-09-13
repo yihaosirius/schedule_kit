@@ -17,6 +17,17 @@
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
+
+{# 顶栏统一在这里渲染：品牌名本身也是回主页的入口。
+   登录页把整个 topbar 区块覆写为空。 #}
+{% block topbar %}
+<header class="topbar">
+  <a class="topbar__brand" href="/" title="返回主页">ScheduleKit</a>
+  <span class="spacer"></span>
+  {% include "_nav.html" %}
+</header>
+{% endblock %}
+
 {% block body %}{% endblock %}
 <script src="/static/js/app.js" defer></script>
 {% block scripts %}{% endblock %}

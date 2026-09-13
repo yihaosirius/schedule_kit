@@ -3,15 +3,6 @@
 {% block body_class %}page-settings{% endblock %}
 
 {% block body %}
-<header class="topbar">
-  <h1>设置</h1>
-  <span class="spacer"></span>
-  <nav>
-    <a href="/">任务</a>
-    <a href="/courses">课表</a>
-  </nav>
-</header>
-
 {# 两栏：左为配置表单（主），右为侧栏（密钥 + 运行状态）。
    侧栏面板必须包进 .layout__column —— 网格是按**行**排布的，直接往第 2 列丢
    多个面板，第二个会从"第 1 行最高的单元格"下面开始，于是两栏之间裂开

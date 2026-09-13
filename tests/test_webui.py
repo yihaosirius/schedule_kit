@@ -277,3 +277,94 @@ async def test_draft_page_uses_a_single_column(app, session_client: AsyncClient)
     html = (await session_client.get(f"/drafts/{draft['draft_id']}")).text
     match = re.search(r'<main class="(layout[^"]*)"', html)
     assert match and "--split" not in match.group(1)
+
+
+# --------------------------------------------------------------------------- #
+# 导航：一个共享部分，且每个页面都能回主页
+# --------------------------------------------------------------------------- #
+STATIC = PROJECT_ROOT / "app" / "static"
+
+
+def test_nav_is_a_single_shared_partial() -> None:
+    """导航必须只有一份。
+
+    原先每个页面各写各的 `<header class="topbar">`，结果标签不一致，
+    而且「退出」只有首页有。
+    """
+    assert (TEMPLATES / "_nav.html").is_file(), "缺少共享导航部分 _nav.html"
+
+    for template in sorted(TEMPLATES.glob("*.html")):
+        if template.name in {"_nav.html", "base.html"}:
+            continue
+        text = template.read_text(encoding="utf-8")
+        assert 'class="topnav"' not in text, f"{template.name} 自己写了一份导航"
+        assert '<header class="topbar">' not in text, f"{template.name} 自己写了一份顶栏"
+
+
+@pytest.mark.parametrize("path", ["/", "/courses", "/settings"])
+async def test_every_page_has_the_nav_and_a_way_out(
+    session_client: AsyncClient, path: str
+) -> None:
+    html = (await session_client.get(path)).text
+    assert html.count('class="topnav"') == 1, f"{path} 应恰好有一个导航"
+    assert 'href="/courses"' in html
+    assert 'href="/settings"' in html
+    assert 'data-action="logout"' in html, f"{path} 缺少退出入口"
+
+
+@pytest.mark.parametrize("path", ["/courses", "/settings"])
+async def test_subpages_offer_an_explicit_way_home(
+    session_client: AsyncClient, path: str
+) -> None:
+    """非首页要把回主页写成显式的「← 主页」。
+
+    只写「任务」会有歧义：分不清它是"当前页"还是"返回入口"。
+    """
+    html = (await session_client.get(path)).text
+    assert 'class="topnav__home"' in html, f"{path} 缺少显式的回主页入口"
+    assert "← 主页" in html
+    assert 'href="/"' in html
+
+
+async def test_home_page_marks_itself_instead_of_linking_home(
+    session_client: AsyncClient,
+) -> None:
+    html = (await session_client.get("/")).text
+    assert 'aria-current="page">任务<' in html
+    assert "← 主页" not in html, "已在首页，不该再显示返回主页"
+
+
+async def test_brand_links_home_on_every_page(session_client: AsyncClient) -> None:
+    for path in ("/", "/courses", "/settings"):
+        html = (await session_client.get(path)).text
+        assert 'class="topbar__brand" href="/"' in html, f"{path} 的品牌名应可点回主页"
+
+
+async def test_draft_page_marks_draft_not_tasks(app, session_client: AsyncClient) -> None:
+    """草稿页不是任务列表，导航里不该把「任务」标为当前页。"""
+    from tests.test_ingest import image_ingest, use_llm
+
+    use_llm(app, [{"title": "x", "category": "other", "due_at": None, "priority": 3}])
+    _, draft = await image_ingest(session_client)
+
+    html = (await session_client.get(f"/drafts/{draft['draft_id']}")).text
+    assert "← 主页" in html
+    assert 'aria-current="page">任务<' not in html
+
+
+async def test_login_page_has_no_nav(client: AsyncClient) -> None:
+    """还没登录，不该出现导航。"""
+    html = (await client.get("/login")).text
+    assert 'class="topnav"' not in html
+    assert 'data-action="logout"' not in html
+
+
+def test_logout_handler_is_global_not_page_specific() -> None:
+    """顶栏在每个页面都有，处理器就必须在每页都加载的 app.js 里。
+
+    原先只写在 tasks.js（仅首页加载），子页面点「退出」没反应。
+    """
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    tasks_js = (STATIC / "js" / "tasks.js").read_text(encoding="utf-8")
+    assert "data-action=logout" in app_js, "退出处理器应在 app.js"
+    assert "data-action=logout" not in tasks_js, "tasks.js 不该再处理退出，否则会重复请求"

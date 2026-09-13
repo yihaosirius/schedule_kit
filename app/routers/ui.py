@@ -71,14 +71,15 @@ def draft_page(draft_id: int, request: Request):
 
     row = draft_service.get_draft(request.app.state.db, draft_id)
     if row is None:
-        return render(request, "draft_missing.html", draft_id=draft_id)
+        return render(request, "draft_missing.html", draft_id=draft_id, active="draft")
 
     return render(
         request,
         "draft.html",
         draft_id=draft_id,
         draft=draft_service.to_public(row),
-        active="tasks",
+        # 草稿页不是任务列表，导航里应显示「← 主页」而不是把"任务"标为当前页
+        active="draft",
     )
 
 

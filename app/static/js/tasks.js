@@ -202,17 +202,8 @@
         input.scrollIntoView({ behavior: "smooth", block: "center" });
         input.focus();
       }
-      return;
     }
-
-    if (event.target.closest("[data-action=logout]")) {
-      event.preventDefault();
-      try {
-        await api("POST", "/api/logout");
-      } finally {
-        window.location.href = "/login";
-      }
-    }
+    /* 退出登录由 app.js 统一处理（顶栏在每个页面都有） */
   });
 
   /* 移动端把无序表折叠起来：它权重更小，不该占首屏。

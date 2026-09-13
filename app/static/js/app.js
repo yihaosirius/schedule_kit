@@ -67,6 +67,19 @@
 
   window.sk = { api, readCookie, toast, reportError };
 
+  /* 退出登录：顶栏导航在每个页面都有，所以处理器必须放在这里，
+     而不是某个页面的脚本里（原先只在 tasks.js 里，导致子页面点"退出"没反应）。 */
+  document.addEventListener("click", async (event) => {
+    if (!event.target.closest("[data-action=logout]")) return;
+    event.preventDefault();
+    try {
+      await api("POST", "/api/logout");
+    } catch (_) {
+      /* 退出失败也要走，本地 Cookie 已由服务端清掉或本就无效 */
+    }
+    window.location.href = "/login";
+  });
+
   /* 注册 Service Worker（仅缓存静态外壳，接口一律直连网络）。
      http 页面里 navigator.serviceWorker 不可用，所以必须先判协议——
      本地开发用 http://127.0.0.1 时不会注册，也不会报错。 */

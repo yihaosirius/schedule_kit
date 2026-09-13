@@ -113,15 +113,39 @@ button { font: inherit; }
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.topbar h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: .01em; }
+/* 品牌名本身就是"返回主页"的入口，所以做成可点的样子 */
+.topbar__brand {
+  margin-left: -6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  color: var(--text);
+  text-decoration: none;
+}
+.topbar__brand:hover { background: var(--surface-2); }
 .topbar .spacer { flex: 1; }
-.topbar nav a {
+
+.topnav { display: flex; align-items: center; gap: 2px; }
+.topnav a {
   font-size: 13px;
   color: var(--text-dim);
   padding: 6px 8px;
   border-radius: 6px;
+  text-decoration: none;
+  white-space: nowrap;
 }
-.topbar nav a:hover { background: var(--surface-2); color: var(--text); }
+.topnav a:hover { background: var(--surface-2); color: var(--text); }
+.topnav a.is-current { background: var(--surface-2); color: var(--text); font-weight: 600; }
+/* 非首页上的「← 主页」需要更醒目一点，否则容易被当成普通标签 */
+.topnav a.topnav__home { color: var(--accent); }
+
+@media (max-width: 420px) {
+  .topbar { gap: 6px; padding-left: 10px; padding-right: 10px; }
+  .topbar__brand { font-size: 14px; }
+  .topnav a { padding: 6px 6px; font-size: 12.5px; }
+}
 
 /* ── 布局 ─────────────────────────────────────────────────────────
  *
