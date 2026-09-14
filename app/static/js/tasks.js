@@ -92,13 +92,13 @@
     details.className = "task__notes";
 
     const summary = document.createElement("summary");
+    const label = document.createElement("span");
+    label.className = "task__notes-label";
+    label.textContent = "备注";
     const peek = document.createElement("span");
     peek.className = "task__notes-peek";
     peek.textContent = item.notes;
-    const open = document.createElement("span");
-    open.className = "task__notes-open";
-    open.textContent = "备注 · 收起";
-    summary.append(peek, open);
+    summary.append(label, peek);
 
     const full = document.createElement("p");
     full.className = "task__notes-full";

@@ -54,6 +54,11 @@
   syncAll();
 
   /* ── 收集与提交 ─────────────────────────────────────────────────── */
+  /* 这里必须把用户能看到的字段**全部**带回去。
+     踩过的坑：只发 title/category/due_at/priority 四个，于是 notes 与
+     source_quote 在"网页二次审核"这条路上被静默丢掉——草稿里有的备注，
+     确认后任务里变成空字符串；而接口直接确认（不带 items）反而保留，
+     所以表现得很像"偶发"。 */
   function collect() {
     return [...list.querySelectorAll(".draft-item")].map((item) => {
       const get = (name) => item.querySelector(`[data-field="${name}"]`);
@@ -61,6 +66,8 @@
       const entry = {
         title: get("title").value.trim(),
         category: get("category").value,
+        notes: get("notes").value.trim(),
+        source_quote: get("source_quote").value,
       };
       if (mode === "due") {
         const raw = get("due_at").value;

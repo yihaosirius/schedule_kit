@@ -335,35 +335,73 @@ details.panel[open] > summary { border-bottom: 1px solid var(--border); }
 .task__actions button:hover { background: var(--surface-2); color: var(--danger); }
 
 /* ── 备注与详情 ──────────────────────────────────────────────────────
-   折叠时一行预览（ellipsis 暗示还有下文），展开后是全文 + 元信息。
-   刻意不用 title 属性：那是悬停提示，手机上没有"悬停"这回事。 */
-.task__notes { margin-top: 3px; }
+   折叠时是一枚"胶囊"：一行预览 + 画出来的三角。展开后是全文 + 元信息。
+
+   两个刻意的选择：
+
+   * **不用浏览器默认的 disclosure 三角。** 它就是一个文字字形（▶），
+     字号跟着正文走，看起来比标题还抢眼，也不像控件。这里用边框画一个，
+     尺寸不跟字体走，展开时旋转 90°。
+   * **不用 title 属性。** 那是悬停提示，手机上没有"悬停"这回事。 */
+.task__notes { margin-top: 5px; }
 
 .task__notes > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 9px 2px 7px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--text-dim);
   cursor: pointer;
   list-style: none;
-  font-size: 12px;
-  color: var(--text-dim);
+}
+.task__notes > summary::-webkit-details-marker { display: none; }
+.task__notes > summary::marker { content: ""; }
+.task__notes > summary:hover { color: var(--text); filter: brightness(.97); }
+
+/* 边框画的三角：是图形，不是字形 */
+.task__notes > summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 4.5px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transition: transform .12s ease;
+}
+.task__notes[open] > summary::before { transform: rotate(90deg); }
+
+.task__notes-label { flex: 0 0 auto; font-weight: 600; }
+.task__notes-peek {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.task__notes > summary::-webkit-details-marker { display: none; }
-.task__notes > summary:hover { color: var(--text); }
-
-/* 展开后换成"收起"提示，避免和下面的全文重复一遍 */
-.task__notes-open { display: none; color: var(--text-faint); }
+/* 展开后收起预览，避免和下面的全文重复一遍 */
 .task__notes[open] .task__notes-peek { display: none; }
-.task__notes[open] .task__notes-open { display: inline; }
 
 .task__notes-full {
-  margin: 4px 0 0;
-  font-size: 12.5px;
+  margin: 6px 0 0;
+  padding: 7px 10px;
+  border-left: 2px solid var(--border);
+  font-size: 12px;
+  line-height: 1.7;
   color: var(--text-dim);
   white-space: pre-wrap;      /* 备注里的换行要保留 */
   overflow-wrap: anywhere;    /* 长链接之类不能撑破布局 */
 }
-.task__facts { margin: 5px 0 0; font-size: 11.5px; color: var(--text-faint); }
+.task__facts {
+  margin: 5px 0 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
 
 .empty {
   padding: 18px 14px;
@@ -492,6 +530,21 @@ details.panel[open] > summary { border-bottom: 1px solid var(--border); }
 
 .draft-item__quote { margin: 8px 0 0; font-size: 12px; color: var(--text-dim); }
 .draft-item__flag { margin: 6px 0 0; font-size: 12px; color: var(--p3); }
+
+/* 备注在确认页是可编辑的：它既是最容易被误删的内容，也常常需要补一句 */
+.draft-field--notes { margin-top: 8px; }
+.draft-field--notes textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
 
 .draft-actions {
   display: flex;

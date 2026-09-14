@@ -88,6 +88,33 @@ def test_service_worker_uses_network_first_for_navigation() -> None:
     assert "fetch(request).catch(" in text, "导航应 network-first，断网才退回外壳"
 
 
+def test_service_worker_uses_network_first_for_static_assets() -> None:
+    """静态资源也必须 network-first。
+
+    这条是**花了一整轮才查出来**的：原来是 cache-first，注释里写的理由是
+    "它们有版本号或很少变"——可这个前提不成立。项目没有构建步骤，就没有
+    文件名指纹；VERSION 是手写常量，没人会记得改。于是任何 CSS / JS 改动
+    都到不了已经装过 SW 的浏览器。
+
+    实测后果：新写的备注组件样式一直不生效，看到的是旧样式，还以为是 CSS
+    本身写错了（三角没隐藏、字号过大、文案重复）——全是缓存造成的假象。
+
+    所以这条用例防的不是性能回退，是"改了看不到"。
+    """
+    text = SW_JS.read_text(encoding="utf-8")
+    handler = text.split("addEventListener('fetch'")[1]
+    static_branch = handler.split("startsWith('/static/')")[1]
+
+    assert "networkFirst(request)" in static_branch, (
+        "静态资源应当走 network-first。改回 caches.match 优先会让"
+        "所有前端改动在装过 SW 的浏览器上永远不生效。"
+    )
+    # network-first 的实现里必须先 fetch、后落缓存
+    helper = text.split("async function networkFirst")[1].split("\n}")[0]
+    assert helper.index("await fetch(request)") < helper.index("cache.put")
+    assert "caches.match(request)" in helper, "网络失败时要能退回缓存"
+
+
 def test_service_worker_versions_its_cache() -> None:
     """版本号决定了旧外壳能否被清掉。"""
     text = SW_JS.read_text(encoding="utf-8")

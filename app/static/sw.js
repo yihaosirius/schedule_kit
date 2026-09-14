@@ -5,13 +5,23 @@
  *      缓存了会出现"勾选完刷新又变回来"这种极难排查的错觉。
  *   2. 页面导航走 network-first —— 服务端是渲染数据的，拿到旧 HTML
  *      就等于看到旧任务。断网时才退回缓存的外壳。
- *   3. 静态资源走 cache-first —— 它们有版本号或很少变，缓存能省流量。
+ *   3. 静态资源也走 network-first，断网才退回缓存。
+ *
+ * 规矩 3 原本是 cache-first，理由是"它们有版本号或很少变"。**这个前提不成立**：
+ * 项目没有构建步骤，就没有文件名指纹；下面的 VERSION 是手写常量，没人会记得改。
+ * 结果是任何 CSS / JS 改动都到不了已经装过 SW 的浏览器——实测踩到：新加的备注
+ * 组件样式整整一轮都没生效，看到的始终是旧样式，还误以为是 CSS 写错了。
+ *
+ * 代价是每个静态资源多一次条件请求（有 ETag / 304 兜着，通常是空响应），
+ * 换来的是"改了就能看到"。对一个个人应用来说这个交换明显划算。
  *
  * 只在 HTTPS 下注册：http 页面里 navigator.serviceWorker 是不可用的，
  * 所以 app.js 会先判断协议。
  */
 
-const VERSION = 'schedulekit-v1';
+// 换版本号会让 activate 清掉旧缓存。规矩 3 改成 network-first 之后，
+// 它不再承担"让改动生效"的责任，只负责别让废弃缓存永远堆着。
+const VERSION = 'schedulekit-v2';
 const SHELL = [
   '/static/css/app.css',
   '/static/js/app.js',
@@ -39,6 +49,24 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/* network-first：先要网络，失败才用缓存。命中后顺手刷新缓存副本，
+   这样离线时拿到的也是最后一次成功加载的版本。 */
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const copy = response.clone();
+      caches.open(VERSION).then((cache) => cache.put(request, copy));
+    }
+    return response;
+  } catch (error) {
+    const hit = await caches.match(request);
+    if (hit) return hit;
+    // 缓存里也没有：回一个明确的失败，而不是让 respondWith(undefined) 抛错
+    return new Response('', { status: 504, statusText: 'Gateway Timeout' });
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -57,17 +85,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 规矩 3：静态资源 cache-first
+  // 规矩 3：静态资源 network-first（原因见文件头）
   if (url.pathname.startsWith('/static/')) {
-    event.respondWith(
-      caches.match(request).then((hit) => hit || fetch(request).then((response) => {
-        if (response.ok) {
-          const copy = response.clone();
-          caches.open(VERSION).then((cache) => cache.put(request, copy));
-        }
-        return response;
-      }))
-    );
+    event.respondWith(networkFirst(request));
   }
 });
 

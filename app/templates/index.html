@@ -22,8 +22,8 @@
 {% macro task_notes(item) %}
 <details class="task__notes">
   <summary>
+    <span class="task__notes-label">备注</span>
     <span class="task__notes-peek">{{ item['notes'] }}</span>
-    <span class="task__notes-open">备注 · 收起</span>
   </summary>
   <p class="task__notes-full">{{ item['notes'] }}</p>
   <p class="task__facts">{{ task_facts(item) }}</p>
