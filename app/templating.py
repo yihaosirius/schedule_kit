@@ -25,6 +25,14 @@ CATEGORY_LABELS: dict[str, str] = {
 #: 优先级 1..5 → 罗马数字 Ⅰ..Ⅴ
 PRIORITY_LABELS: dict[int, str] = {1: "Ⅰ", 2: "Ⅱ", 3: "Ⅲ", 4: "Ⅳ", 5: "Ⅴ"}
 
+#: 任务来源 → 中文标签。``source`` 是客户端自报的，见 docs/api.md §2。
+SOURCE_LABELS: dict[str, str] = {
+    "web": "网页",
+    "shortcut": "快捷指令",
+    "llm": "智能录入",
+    "api": "接口",
+}
+
 #: 草稿状态 → 中文标签。顺序即草稿箱筛选条里的顺序。
 DRAFT_STATUS_LABELS: dict[str, str] = {
     "pending": "待确认",
@@ -48,6 +56,12 @@ def priority_label(value: int | None) -> str:
 
 def draft_status_label(value: str) -> str:
     return DRAFT_STATUS_LABELS.get(value, value)
+
+
+def source_label(value: str | None) -> str:
+    if not value:
+        return ""
+    return SOURCE_LABELS.get(value, value)
 
 
 def format_local(value: str | None, timezone: str, fmt: str = "%Y-%m-%d %H:%M") -> str:
@@ -135,6 +149,7 @@ def filesize(value: int | None) -> str:
 templates.env.filters["category_label"] = category_label
 templates.env.filters["priority_label"] = priority_label
 templates.env.filters["draft_status_label"] = draft_status_label
+templates.env.filters["source_label"] = source_label
 templates.env.filters["local"] = _local_filter
 templates.env.filters["local_date"] = _date_filter
 templates.env.filters["local_input"] = _local_input_filter
@@ -145,8 +160,10 @@ templates.env.filters["urlencode_q"] = _urlencode_filter
 templates.env.globals["category_label"] = category_label
 templates.env.globals["priority_label"] = priority_label
 templates.env.globals["draft_status_label"] = draft_status_label
+templates.env.globals["source_label"] = source_label
 templates.env.globals["WEEKDAY_LABELS"] = WEEKDAY_LABELS
 templates.env.globals["DRAFT_STATUS_LABELS"] = DRAFT_STATUS_LABELS
+templates.env.globals["SOURCE_LABELS"] = SOURCE_LABELS
 
 
 def render(request: Request, template_name: str, **context: Any):

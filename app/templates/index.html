@@ -2,6 +2,34 @@
 {% block title %}任务 · ScheduleKit{% endblock %}
 {% block body_class %}page-app{% endblock %}
 
+{% macro task_facts(item) -%}
+来源 {{ item['source'] | source_label }} · 创建 {{ item['created_at'] | local(timezone) }}
+{%- if item['updated_at'] and item['updated_at'] != item['created_at'] %} · 更新 {{ item['updated_at'] | local(timezone) }}{% endif %}
+{%- if item['completed_at'] %} · 完成 {{ item['completed_at'] | local(timezone) }}{% endif %}
+{%- endmacro %}
+
+{# 备注与详情。
+   曾经这里只有一个 <span class="chip" title="...">备注</span> —— 悬停提示，
+   手机上永远看不到。而备注是视觉模型抽取出来的内容（"只做奇数题"这种），
+   恰恰是这个应用最需要被读到的东西之一。
+
+   折叠时显示一行预览，展开后是全文 + 元信息。用纯 <details>：无 JS 也能
+   展开，触屏和键盘都能用。
+
+   ⚠️ 这段结构在 app/static/js/tasks.js 的 renderRow() 里有一份镜像。
+   两边必须一起改 —— 之前"备注"标记只加在了服务端这一份上，任何一次勾选
+   完成触发 refresh() 之后它就会消失。 #}
+{% macro task_notes(item) %}
+<details class="task__notes">
+  <summary>
+    <span class="task__notes-peek">{{ item['notes'] }}</span>
+    <span class="task__notes-open">备注 · 收起</span>
+  </summary>
+  <p class="task__notes-full">{{ item['notes'] }}</p>
+  <p class="task__facts">{{ task_facts(item) }}</p>
+</details>
+{% endmacro %}
+
 {% macro task_row(item) %}
 <li class="task{% if item['status'] == 'done' %} is-done{% endif %}"
     data-id="{{ item['id'] }}"
@@ -21,8 +49,8 @@
       {% else %}
         <span class="badge-priority" data-p="{{ item['priority'] }}">{{ item['priority'] | priority_label }}</span>
       {% endif %}
-      {% if item['notes'] %}<span class="chip" title="{{ item['notes'] }}">备注</span>{% endif %}
     </div>
+    {% if item['notes'] %}{{ task_notes(item) }}{% endif %}
   </div>
   <div class="task__actions">
     <button type="button" data-action="delete" title="删除" aria-label="删除">✕</button>

@@ -1,8 +1,12 @@
-/* 首页交互：添加、勾选完成、删除、内联编辑。
+/* 首页交互：添加、勾选完成、删除。
  *
  * 采用"局部刷新 + 重新排序"的策略：任何写操作成功后重新拉取两个视图，
  * 避免在客户端复刻一遍排序规则（有序表按时间、无序表按 Ⅰ→Ⅴ），
  * 那样迟早会和服务端不一致。
+ *
+ * ⚠️ renderRow() 是 app/templates/index.html 里 task_row 宏的**镜像**。
+ * 两边必须一起改。踩过的坑：备注标记当初只加在了服务端那一份上，于是
+ * 任何一次勾选完成（触发 refresh 重渲染）之后，备注就不见了。
  */
 (function () {
   "use strict";
@@ -45,6 +49,7 @@
   /* ── 渲染 ────────────────────────────────────────────────────────── */
   const CATEGORY_LABELS = { homework: "作业", practice: "练习", exam: "考试", appointment: "要约", other: "其他" };
   const PRIORITY_LABELS = { 1: "Ⅰ", 2: "Ⅱ", 3: "Ⅲ", 4: "Ⅳ", 5: "Ⅴ" };
+  const SOURCE_LABELS = { web: "网页", shortcut: "快捷指令", llm: "智能录入", api: "接口" };
 
   function relativeTime(iso) {
     const diff = (new Date(iso).getTime() - Date.now()) / 1000;
@@ -66,6 +71,45 @@
     const d = new Date(iso);
     const pad = (n) => String(n).padStart(2, "0");
     return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function facts(item) {
+    const parts = [`来源 ${SOURCE_LABELS[item.source] || item.source}`];
+    parts.push(`创建 ${localLabel(item.created_at)}`);
+    if (item.updated_at && item.updated_at !== item.created_at) {
+      parts.push(`更新 ${localLabel(item.updated_at)}`);
+    }
+    if (item.completed_at) parts.push(`完成 ${localLabel(item.completed_at)}`);
+    return parts.join(" · ");
+  }
+
+  /* 备注与详情。结构与 index.html 的 task_notes 宏一一对应，改一个要改两个。
+     用 <details> 而不是自己写开合：无 JS 也能展开，触屏和键盘都能用。
+
+     文本一律走 textContent —— 备注可能来自图片识别，是外部内容。 */
+  function notesBlock(item) {
+    const details = document.createElement("details");
+    details.className = "task__notes";
+
+    const summary = document.createElement("summary");
+    const peek = document.createElement("span");
+    peek.className = "task__notes-peek";
+    peek.textContent = item.notes;
+    const open = document.createElement("span");
+    open.className = "task__notes-open";
+    open.textContent = "备注 · 收起";
+    summary.append(peek, open);
+
+    const full = document.createElement("p");
+    full.className = "task__notes-full";
+    full.textContent = item.notes;
+
+    const meta = document.createElement("p");
+    meta.className = "task__facts";
+    meta.textContent = facts(item);
+
+    details.append(summary, full, meta);
+    return details;
   }
 
   function renderRow(item) {
@@ -110,6 +154,7 @@
     }
 
     body.append(title, meta);
+    if (item.notes) body.appendChild(notesBlock(item));
 
     const actions = document.createElement("div");
     actions.className = "task__actions";
