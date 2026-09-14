@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}草稿箱 · ScheduleKit{% endblock %}
+{% block body_class %}page-drafts{% endblock %}
+
+{% block body %}
+{# 单列布局：面板就是一张表 + 一条筛选栏，没有侧栏，所以用裸 .layout。
+   两栏必须显式选 .layout--split / .layout--settings（见 docs/dev-notes.md）。 #}
+<main class="layout" data-drafts-page>
+
+  <section class="panel">
+    <header>
+      <h2>草稿箱</h2>
+      <span class="count">
+        {% if status_filter %}{{ total }} 条 · {{ status_filter | draft_status_label }}{% else %}{{ total }} 条{% endif %}
+      </span>
+    </header>
+
+    <p class="hint drafts-intro">
+      草稿是识别的中间产物。**待确认**的草稿过了保留期会被自动清理，
+      <strong>已入库</strong>的草稿永久保留作为识别历史。
+      在这里删除是<strong>永久</strong>的，但<strong>不会影响已经入库的任务</strong>，
+      也<strong>不会删掉图片文件</strong>——图片按保留策略单独清理（同内容图片由多份草稿共用）。
+    </p>
+
+    {# 筛选走链接而不是 JS：无 JS 也能用，URL 可以存书签 #}
+    <nav class="draft-filters" aria-label="按状态筛选">
+      <a href="/drafts"{% if not status_filter %} class="is-current" aria-current="page"{% endif %}>
+        全部 {{ counts.values() | sum }}
+      </a>
+      {% for value, label in DRAFT_STATUS_LABELS.items() %}
+        <a href="/drafts?status={{ value }}"
+           {% if status_filter == value %} class="is-current" aria-current="page"{% endif %}>
+          {{ label }} {{ counts.get(value, 0) }}
+        </a>
+      {% endfor %}
+    </nav>
+
+    {% if drafts %}
+      <form data-drafts-form>
+        <table class="settings-table drafts-table">
+          <thead>
+            <tr>
+              <th class="drafts-cell-check">
+                <input type="checkbox" data-drafts-toggle aria-label="全选">
+              </th>
+              <th>草稿</th>
+              <th class="drafts-cell-time">时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in drafts %}
+              <tr data-draft-id="{{ d.draft_id }}">
+                <td class="drafts-cell-check">
+                  <input type="checkbox" name="ids" value="{{ d.draft_id }}"
+                         aria-label="选择草稿 {{ d.draft_id }}">
+                </td>
+                <td>
+                  <div class="drafts-line">
+                    <span class="chip chip--{{ d.status }}">{{ d.status | draft_status_label }}</span>
+                    <a class="drafts-preview" href="/drafts/{{ d.draft_id }}">{{ d.preview }}</a>
+                  </div>
+                  <div class="drafts-meta">
+                    #{{ d.draft_id }} ·
+                    {% if d.channel == 'image' %}图片{% else %}文本{% endif %} ·
+                    {{ d.item_count }} 条事项
+                    {%- if d.has_image %} · 有原图{% endif %}
+                    {%- if d.llm_path == 'json_fallback' %} · <span class="drafts-warn">JSON 降级</span>{% endif %}
+                    {%- if d.llm_path is none and d.llm_provider == 'client' %} · 客户端直供{% endif %}
+                  </div>
+                  {% if d.error %}
+                    <div class="drafts-error">{{ d.error }}</div>
+                  {% endif %}
+                  {% if d.created_item_ids %}
+                    <div class="drafts-meta">
+                      已创建任务 {{ d.created_item_ids | join('、') }} —— 删掉这条草稿不会影响它们
+                    </div>
+                  {% endif %}
+                </td>
+                <td class="drafts-cell-time">
+                  <div>{{ d.created_at | local(timezone) }}</div>
+                  {% if d.status == 'confirmed' %}
+                    <div class="drafts-meta">入库于 {{ d.confirmed_at | local(timezone) }}</div>
+                  {% else %}
+                    <div class="drafts-meta">自动清理 {{ d.expires_at | countdown(timezone) }}</div>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <div class="draft-actions">
+          <button type="submit" class="button-ghost" disabled>删除选中</button>
+          <span class="hint" data-drafts-status>勾选左侧复选框后可以批量删除</span>
+        </div>
+      </form>
+
+      {% if prev_url or next_url %}
+        <nav class="drafts-pager" aria-label="分页">
+          {% if prev_url %}
+            <a href="{{ prev_url }}">← 上一页</a>
+          {% else %}
+            <span class="drafts-pager__off">← 上一页</span>
+          {% endif %}
+          <span class="drafts-meta">
+            第 {{ offset + 1 }}–{{ offset + drafts | length }} 条，共 {{ total }} 条
+          </span>
+          {% if next_url %}
+            <a href="{{ next_url }}">下一页 →</a>
+          {% else %}
+            <span class="drafts-pager__off">下一页 →</span>
+          {% endif %}
+        </nav>
+      {% endif %}
+    {% else %}
+      <p class="empty">
+        {% if status_filter %}
+          没有「{{ status_filter | draft_status_label }}」的草稿。
+          <a href="/drafts">看全部</a>
+        {% else %}
+          草稿箱是空的。用快捷指令拍张照或发段文字，识别结果会先落到这里。
+        {% endif %}
+      </p>
+    {% endif %}
+  </section>
+
+</main>
+{% endblock %}
+
+{% block scripts %}
+{% if drafts %}
+<script src="/static/js/drafts.js" defer></script>
+{% endif %}
+{% endblock %}

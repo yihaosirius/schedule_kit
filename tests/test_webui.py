@@ -264,7 +264,7 @@ async def test_settings_page_lists_every_provider(session_client: AsyncClient) -
     assert 'name="retry_backoff_seconds"' in html
 
 
-@pytest.mark.parametrize("path", ["/courses"])
+@pytest.mark.parametrize("path", ["/courses", "/drafts"])
 async def test_content_pages_use_a_single_column(
     session_client: AsyncClient, path: str
 ) -> None:

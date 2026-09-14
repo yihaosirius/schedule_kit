@@ -2,7 +2,7 @@
    由 base.html 的 topbar 引入，各页面不再自己写 —— 之前每个页面各写各的，
    导致「退出」只在首页有、标签也各不相同。
 
-   `active` 由页面路由传入：tasks / courses / settings / draft。
+   `active` 由页面路由传入：tasks / courses / settings / drafts。
    在非首页上把首页入口显式写成「← 主页」，避免"任务"这个标签到底是
    当前页还是返回入口分不清。 #}
 <nav class="topnav">
@@ -13,6 +13,9 @@
   {% endif %}
 
   <a href="/courses"{% if active == 'courses' %} class="is-current" aria-current="page"{% endif %}>课表</a>
+  {# 草稿确认页（active='draft'）也算草稿箱这一支，否则在确认页上
+     用户看不出自己在哪儿、也点不回去。 #}
+  <a href="/drafts"{% if active in ('drafts', 'draft') %} class="is-current" aria-current="page"{% endif %}>草稿箱</a>
   <a href="/settings"{% if active == 'settings' %} class="is-current" aria-current="page"{% endif %}>设置</a>
   <a href="#" data-action="logout">退出</a>
 </nav>

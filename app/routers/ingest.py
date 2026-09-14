@@ -9,6 +9,10 @@
 * ``channel=text`` —— 一段自然语言，走同一个模型
 * ``channel=text`` + ``items`` —— 客户端已经拿到了结构化内容（例如快捷指令
   把草稿改过了），直接建草稿等确认，**不再调用 LLM**
+
+草稿箱（``GET /api/ingest`` 列表与 ``POST /api/ingest/purge`` 永久删除）
+也在这里：它们管的是同一张表，换一个 URL 前缀只会让"哪个接口对应哪张表"
+更难查。
 """
 
 from __future__ import annotations
@@ -17,11 +21,11 @@ import base64
 import binascii
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app.deps import AuthDep, WriteAuthDep
+from app.deps import AuthDep, SessionWriteDep, WriteAuthDep
 from app.llm.base import PATH_JSON_FALLBACK, LLMError
 from app.logging import get_logger, kv
 from app.media import MediaError, resolve_upload, store_image
@@ -35,6 +39,9 @@ from app.timeutil import now_utc
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 log = get_logger("ingest")
 
+#: 草稿状态。与 ``app.services.drafts.STATUSES`` 保持一致。
+DraftStatus = Literal["pending", "confirmed", "discarded", "failed"]
+
 #: base64 会让体积膨胀约 1/3，所以在配置的图片上限之外再留一点余量给 JSON 包装
 BASE64_OVERHEAD = 1.4
 
@@ -47,6 +54,12 @@ class IngestRequest(BaseModel):
     items: list[dict[str, Any]] | None = Field(
         default=None, description="已结构化的条目；提供时跳过 LLM，直接建草稿等确认"
     )
+
+
+class PurgeIn(BaseModel):
+    """一次性最多删 200 条：再多就该怀疑调用方是不是把 id 搞错了。"""
+
+    ids: list[int] = Field(min_length=1, max_length=200)
 
 
 def _draft_response(request: Request, row, *, elapsed_ms: float | None = None) -> dict[str, Any]:
@@ -212,6 +225,55 @@ def _load_or_404(request: Request, draft_id: int):
     if row is None:
         raise HTTPException(status_code=404, detail=f"草稿 {draft_id} 不存在或已过期")
     return row
+
+
+# --------------------------------------------------------------------------- #
+# 草稿箱：列表与永久删除
+# --------------------------------------------------------------------------- #
+@router.post("/purge", summary="永久删除草稿（仅网页会话）")
+def purge_ingest(payload: PurgeIn, request: Request, auth: SessionWriteDep) -> dict:
+    """把草稿行真删掉，用于手工清理。
+
+    **只接受网页会话**，读写 API Key 也不行：这条路径不可恢复，而草稿行里
+    有 ``error`` / ``llm_raw`` 这些排查线索。丢弃（``discard``）仍然对
+    读写密钥开放——它只改状态、留痕，是机器流程该用的那个。
+
+    注意路由注册顺序：``/purge`` 是字面量，必须排在 ``/{draft_id}`` 之前，
+    否则将来若加一个 ``POST /{draft_id}`` 就会把它吃掉。
+    """
+    deleted, missing = draft_service.purge_drafts(request.app.state.db, payload.ids)
+    if missing:
+        log.warning("ingest.purge_partial %s", kv(requested=len(payload.ids), missing=missing[:20]))
+    return {"deleted": len(deleted), "ids": deleted, "missing": missing}
+
+
+@router.get("", summary="列出草稿（草稿箱）")
+def list_ingest(
+    request: Request,
+    auth: AuthDep,
+    draft_status: DraftStatus | None = Query(default=None, alias="status"),
+    channel: Literal["image", "text"] | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    """读草稿列表，新的在前。
+
+    ``counts`` 恒含四个状态（没有就是 0），所以筛选标签不需要自己折算。
+    """
+    rows, total = draft_service.list_drafts(
+        request.app.state.db,
+        status=draft_status,
+        channel=channel,
+        limit=limit,
+        offset=offset,
+    )
+    return {
+        "drafts": [draft_service.to_summary(row) for row in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "counts": draft_service.status_counts(request.app.state.db),
+    }
 
 
 @router.get("/{draft_id}", summary="读取草稿")

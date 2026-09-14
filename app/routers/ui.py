@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Any
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 
 from app.deps import authenticate
@@ -22,6 +25,9 @@ from app.templating import render
 from app.timeutil import now_utc
 
 router = APIRouter(tags=["ui"])
+
+#: 草稿箱每页条数。比 API 的默认 50 小一点：面板上是人能看的量。
+DRAFTS_PAGE_SIZE = 25
 
 
 @router.get("/login", include_in_schema=False)
@@ -60,6 +66,52 @@ def index(request: Request):
         ordered=task_service.list_items(db, view="ordered", status="open"),
         unordered=task_service.list_items(db, view="unordered", status="open"),
         active="tasks",
+    )
+
+
+@router.get("/drafts", include_in_schema=False)
+def drafts_page(
+    request: Request,
+    status: str | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+):
+    """草稿箱。闲时清理用。
+
+    筛选与分页都走查询参数、服务端渲染——这样无 JS 也能用，链接可以直接
+    存书签，也不用在浏览器里再实现一遍过滤逻辑。
+    """
+    if authenticate(request) is None:
+        return RedirectResponse("/login?next=/drafts", status_code=303)
+
+    db = request.app.state.db
+    # 未知 status 一律当作"不筛选"，而不是给一个空列表让用户以为草稿没了
+    status_filter = status if status in draft_service.STATUSES else None
+    rows, total = draft_service.list_drafts(
+        db, status=status_filter, limit=DRAFTS_PAGE_SIZE, offset=offset
+    )
+
+    def page_url(next_offset: int) -> str:
+        params: dict[str, Any] = {}
+        if status_filter:
+            params["status"] = status_filter
+        if next_offset > 0:
+            params["offset"] = next_offset
+        return "/drafts" + (f"?{urlencode(params)}" if params else "")
+
+    return render(
+        request,
+        "drafts.html",
+        drafts=[draft_service.to_summary(row) for row in rows],
+        counts=draft_service.status_counts(db),
+        total=total,
+        limit=DRAFTS_PAGE_SIZE,
+        offset=offset,
+        status_filter=status_filter,
+        prev_url=page_url(max(0, offset - DRAFTS_PAGE_SIZE)) if offset > 0 else None,
+        next_url=page_url(offset + DRAFTS_PAGE_SIZE)
+        if offset + DRAFTS_PAGE_SIZE < total
+        else None,
+        active="drafts",
     )
 
 

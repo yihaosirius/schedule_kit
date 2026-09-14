@@ -467,6 +467,63 @@ details.panel[open] > summary { border-bottom: 1px solid var(--border); }
   gap: 10px;
   padding: 14px;
 }
+
+/* ── 草稿箱 ──────────────────────────────────────────────────────── */
+.drafts-intro { padding: 0 14px; }
+
+.draft-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 12px;
+}
+.draft-filters a {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 12px;
+  text-decoration: none;
+}
+.draft-filters a:hover { color: var(--text); }
+.draft-filters a.is-current {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.drafts-table td { vertical-align: top; }
+.drafts-cell-check { width: 28px; text-align: center; }
+.drafts-cell-time { width: 130px; white-space: nowrap; color: var(--text-dim); }
+
+.drafts-line { display: flex; align-items: center; gap: 6px; }
+.drafts-preview { color: var(--text); text-decoration: none; }
+.drafts-preview:hover { text-decoration: underline; }
+.drafts-meta { margin-top: 3px; font-size: 11.5px; color: var(--text-faint); }
+.drafts-error {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+.drafts-warn { color: var(--p4); }
+
+/* 状态色只在"需要注意"的那两个上给，全部上色反而看不出重点 */
+.chip--pending { background: var(--accent-soft); color: var(--accent); }
+.chip--failed { background: #fde8e8; color: var(--danger); }
+
+.drafts-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 14px 14px;
+  font-size: 12.5px;
+}
+.drafts-pager a { color: var(--accent); text-decoration: none; }
+.drafts-pager a:hover { text-decoration: underline; }
+.drafts-pager__off { color: var(--text-faint); }
+
 .button-primary {
   padding: 10px 20px;
   border: 0;

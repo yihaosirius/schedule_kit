@@ -30,7 +30,7 @@
 
 ### 0.2 端点总表
 
-共 19 个 API 端点 + 1 个健康检查 + 6 个页面路由。`鉴权` 列是**最低要求**。
+共 21 个 API 端点 + 1 个健康检查 + 7 个页面路由。`鉴权` 列是**最低要求**。
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|
@@ -40,7 +40,9 @@
 | POST | `/api/tasks` | 写 | 创建任务 |
 | PATCH | `/api/tasks/{item_id}` | 写 | 局部更新 |
 | DELETE | `/api/tasks/{item_id}` | 写 | 删除 |
+| GET | `/api/ingest` | 任何凭据 | **列出草稿（草稿箱）** |
 | POST | `/api/ingest` | 写 | 上传图片/文本 → 草稿 |
+| POST | `/api/ingest/purge` | **仅网页会话** | **永久删除草稿** |
 | GET | `/api/ingest/{draft_id}` | 任何凭据 | 读草稿 |
 | GET | `/api/ingest/{draft_id}/image` | 任何凭据 | 草稿原图 |
 | POST | `/api/ingest/{draft_id}/confirm` | 写 | 确认入库 |
@@ -54,7 +56,7 @@
 | POST | `/api/keys` | **仅网页会话** | 创建 API Key |
 | DELETE | `/api/keys/{key_id}` | **仅网页会话** | 吊销 API Key |
 | GET | `/healthz` | 无 | 存活探测 |
-| GET | `/` `/login` `/courses` `/settings` `/drafts/{draft_id}` `/sw.js` | 见 §7 | HTML 页面与 Service Worker |
+| GET | `/` `/login` `/courses` `/settings` `/drafts` `/drafts/{draft_id}` `/sw.js` | 见 §7 | HTML 页面与 Service Worker |
 
 "任何凭据" = 只读密钥、读写密钥、网页会话都可以。"写" = 读写密钥或网页会话。
 
@@ -581,6 +583,102 @@ JSON 基础上改完再提交"——修改与入库在**一个事务**里完成�
 
 ---
 
+## 3b. 草稿箱（闲时清理）
+
+`discard` 只改状态、留痕；这一节的两个端点是**给人清理用的**：一个列出草稿，
+一个把行真删掉。
+
+### `GET /api/ingest`
+
+列出草稿，新的在前。
+
+| 参数 | 取值 | 默认 | 说明 |
+|---|---|---|---|
+| `status` | `pending` \| `confirmed` \| `discarded` \| `failed` | 不传 = 全部 | 非法值 `422` |
+| `channel` | `image` \| `text` | 不传 = 全部 | |
+| `limit` | 1–200 | `50` | |
+| `offset` | ≥0 | `0` | |
+
+```json
+{
+  "drafts": [
+    {
+      "draft_id": 12,
+      "status": "confirmed",
+      "channel": "image",
+      "item_count": 2,
+      "preview": "第三章习题",
+      "input_text": null,
+      "error": null,
+      "has_image": true,
+      "llm_provider": "responses",
+      "llm_model": "deepseek-flash",
+      "llm_path": "tool_call",
+      "created_at": "2026-09-14T08:56:40+00:00",
+      "expires_at": "2026-09-16T08:56:40+00:00",
+      "confirmed_at": "2026-09-14T09:02:11+00:00",
+      "created_item_ids": [42, 43]
+    }
+  ],
+  "total": 137,
+  "limit": 50,
+  "offset": 0,
+  "counts": { "pending": 2, "confirmed": 130, "discarded": 4, "failed": 1 }
+}
+```
+
+- `total` 是**过滤后**的总数（不是本页条数），供分页用。
+- `counts` 恒含四个状态，没有就是 `0` ——不用自己折算。（对比 §6 的
+  `status.drafts`，那个是稀疏字典。）
+- **这是轻量表示**：不含 `items` 与 `context_snapshot`。一次列 50 条时那些
+  字段会把响应撑到几百 KB。要看全文走 `GET /api/ingest/{draft_id}`。
+- `preview` 优先取第一个事项的标题，没有就用 `input_text` 开头。
+
+只读密钥也能读——小组件可以用它显示待确认数量。
+
+### `POST /api/ingest/purge`
+
+**永久删除**草稿行。
+
+```json
+{ "ids": [12, 13, 14] }
+```
+
+`ids` 必填，1–200 个。
+
+```json
+{ "deleted": 3, "ids": [12, 13, 14], "missing": [] }
+```
+
+`missing` 是本次没找到（已经不存在）的 id。重复提交**不报错**，只是
+`deleted` 变 0、`missing` 列出它们——重试和并发点击都会走到这里，
+让它报错只会制造假故障。
+
+**权限：只认网页会话。** 读写 API Key 也会得到
+`403 该操作仅限网页会话`。这是刻意的——见 §9 的说明。
+
+**两条绝不越界的事**（都有回归用例钉住）：
+
+| 不变量 | 原因 |
+|---|---|
+| 删除草稿**不会**删除已入库的任务 | `items` 与 `ingest_drafts` 之间没有外键，`created_item_ids` 只是个 JSON 数组 |
+| 删除草稿**不会**删除图片文件 | `media.store_image` 按内容哈希命名且已存在就不重写，所以同一天上传的相同图片**由多份草稿共用**；已确认的草稿更是永久保留 `image_path`。图片的生命周期只由保留策略（`[backup].upload_retention_days`）管 |
+
+第二条尤其容易写错：在删除路径里顺手 `unlink` 会把别人的图删掉。
+
+### 三种"删除"的关系
+
+| 操作 | 端点 | 效果 | 谁能做 |
+|---|---|---|---|
+| 丢弃 | `POST /api/ingest/{id}/discard` | 状态改成 `discarded`，**留痕**，到 TTL 才被自动清掉 | 读写密钥 / 会话 |
+| 永久删除 | `POST /api/ingest/purge` | **真删行**，不可恢复 | 仅网页会话 |
+| 自动清理 | （无端点） | 每小时扫一次，删掉过期的 `pending`/`discarded`/`failed` | 后台任务 |
+
+`confirmed` 的草稿**永远不会被自动清理**，要删只能显式 purge。它是"识别到了
+什么 → 创建了哪些任务"的唯一记录。
+
+---
+
 ## 4. 课表
 
 ### `GET /api/courses`
@@ -859,8 +957,13 @@ curl -X PUT -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' 
 | `GET /login` | `200` 登录页 | `303` → `/` |
 | `GET /courses` | `303` → `/login?next=/courses` | `200` 课表页 |
 | `GET /settings` | `303` → `/login?next=/settings` | `200` 控制台 |
-| `GET /drafts/{id}` | `303` → `/login?next=/drafts/{id}` | `200` 确认页；草稿不存在也返回 `200`（渲染"找不到"页面） |
+| `GET /drafts` | `303` → `/login?next=/drafts` | `200` **草稿箱**（支持 `?status=` `?offset=`） |
+| `GET /drafts/{draft_id}` | `303` → `/login?next=/drafts/{draft_id}` | `200` 确认页；草稿不存在也返回 `200`（渲染"找不到"页面） |
 | `GET /sw.js` | 无需鉴权 | `200`，`Cache-Control: no-cache`，`Service-Worker-Allowed: /` |
+
+`/drafts` 的筛选与分页全走查询参数 + 服务端渲染：无 JS 也能用，URL 可以存书签。
+每页 25 条。**未知的 `?status=` 在页面上退化成"不筛选"**（而在 API 上是 `422`）
+——页面上给个空列表会让人以为草稿丢了。
 
 `/sw.js` 必须从站点根路径提供，作用域才能覆盖整站。它被放在 `/static/` 下的话
 默认作用域只有 `/static/`，页面导航就管不到了。
@@ -921,6 +1024,38 @@ MCP 工具即可。注意 `create_app()` 默认关闭了 `docs_url` / `openapi_u
 
 现在空输入就是清空：`{"courses": []}` 或纯空白文本都返回 `200`。
 纯注释文本（如 `# 备注`）仍报 `422`——那不是清空的表达方式，不该悄悄擦掉课表。
+
+### ③ 失败草稿的"模型原始返回"根本不存在（2026-09 做草稿箱时发现）
+
+`draft.html` 的失败分支原本写着「草稿已留档（含**模型原始返回**）」。实际上
+`create_failed_draft` 的 `llm_raw` 参数**从未被传入**——失败时那一列恒为 `NULL`，
+API 也从不下发它。用户被指去看一个查不到的东西。
+
+能拿到的只有 `error`，而它对 HTTP 错误已经内含响应体片段（上限 500 字符）。
+文案已改成「错误详情已记在上面」。
+
+**没有**顺手去补 `llm_raw`：传输层失败时根本不存在"模型的原始返回"，硬塞一个
+半截的反而更误导。真要保留原始输出，得先在 `extract()` 里把响应体挂到异常上，
+那是另一件事。
+
+### ④ 删草稿时最容易顺手毁掉的两样东西（草稿箱引入）
+
+草稿箱唯一的破坏性动作是删行，而它旁边有两样东西**看起来**该跟着删、
+实际上绝不能删：
+
+1. **图片文件。** `media.store_image` 按内容哈希命名（`sha256[:16]`）且
+   `if not target.exists()` 才写盘——所以同一天上传两次相同图片会**共用同一个
+   文件**，已确认的草稿还永久保留 `image_path`。在删除路径里 `unlink` 会把
+   别人的图删掉。图片生命周期只归 `housekeeping._purge_old_uploads` 管。
+2. **已入库的任务。** `items` 与 `ingest_drafts` 之间没有外键，
+   `created_item_ids` 只是 JSON 数组。
+
+两条各有用例，且都用"**另一个对象仍然可用**"来断言（删掉共用图片的两条草稿之一
+后，另一条的 `/image` 仍返回 `200`），而不是只断言"删掉了 1 条"。
+
+`purge` 之所以**只认网页会话**、连读写 API Key 都拒绝，也是这个原因：
+`discard` 只改状态、留痕，出错了还能查；`purge` 不可恢复，而草稿行里
+有 `error` 这些排查线索。机器流程用 `discard`，人用 `purge`。
 
 ### 顺带确认无误的几处
 

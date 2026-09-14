@@ -12,18 +12,27 @@
     <section class="panel">
       <header><h2>识别失败</h2></header>
       <p class="empty">{{ draft.error or '未知错误' }}</p>
-      <p class="empty">草稿已留档（含模型原始返回），可直接重试上传。</p>
+      {# 这里原先写的是"草稿已留档（含模型原始返回）"——不准确：
+         create_failed_draft 从不写 llm_raw，失败时根本没有模型原始返回可存。
+         能拿到的只有 error（HTTP 错误时它已内含响应体片段）。
+         别再给用户一个查不到的东西。 #}
+      <p class="empty">错误详情已记在上面，可直接重试上传。</p>
+      <p class="empty"><a href="/drafts">← 回草稿箱</a></p>
     </section>
   {% elif draft.status == 'confirmed' %}
     <section class="panel">
       <header><h2>已入库</h2></header>
       <p class="empty">这次确认创建了任务 {{ draft["created_item_ids"] }}。</p>
-      <p class="empty"><a href="/">回到任务列表</a></p>
+      <p class="empty">
+        <a href="/">回到任务列表</a> ·
+        <a href="/drafts">← 回草稿箱</a>
+      </p>
     </section>
   {% elif draft.status == 'discarded' %}
     <section class="panel">
       <header><h2>已丢弃</h2></header>
       <p class="empty">这条草稿已被丢弃，没有任务入库。</p>
+      <p class="empty"><a href="/drafts">← 回草稿箱</a></p>
     </section>
   {% else %}
     <section class="panel">

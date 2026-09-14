@@ -25,6 +25,9 @@ STATUS_CONFIRMED = "confirmed"
 STATUS_DISCARDED = "discarded"
 STATUS_FAILED = "failed"
 
+#: 全部状态，顺序即 UI 中的展示顺序。
+STATUSES = (STATUS_PENDING, STATUS_CONFIRMED, STATUS_DISCARDED, STATUS_FAILED)
+
 
 class DraftNotFound(LookupError):
     """草稿不存在或已过期清理。"""
@@ -51,6 +54,55 @@ class ConfirmResult:
 def get_draft(db, draft_id: int) -> sqlite3.Row | None:
     with db.connect() as conn:
         return conn.execute("SELECT * FROM ingest_drafts WHERE id = ?", (draft_id,)).fetchone()
+
+
+def list_drafts(
+    db,
+    *,
+    status: str | None = None,
+    channel: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[sqlite3.Row], int]:
+    """按条件列出草稿，返回 ``(rows, total)``。新的在前。
+
+    ``total`` 是**过滤后**的总数，供分页用；与 ``rows`` 的长度无关。
+    """
+    clauses: list[str] = []
+    params: list[Any] = []
+    if status:
+        clauses.append("status = ?")
+        params.append(status)
+    if channel:
+        clauses.append("channel = ?")
+        params.append(channel)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    with db.connect() as conn:
+        total = int(
+            conn.execute(f"SELECT COUNT(*) FROM ingest_drafts{where}", params).fetchone()[0]
+        )
+        rows = conn.execute(
+            f"SELECT * FROM ingest_drafts{where}"
+            " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+    return list(rows), total
+
+
+def status_counts(db) -> dict[str, int]:
+    """各状态的草稿数。
+
+    刻意返回**完整的四个键**（没有就是 0），而不是 :mod:`app.status` 那种
+    只含实际存在状态的稀疏字典——调用方在这里不该还要记得 ``.get(k, 0)``。
+    """
+    counts = {name: 0 for name in STATUSES}
+    with db.connect() as conn:
+        for row in conn.execute(
+            "SELECT status, COUNT(*) AS n FROM ingest_drafts GROUP BY status"
+        ):
+            counts[str(row["status"])] = int(row["n"])
+    return counts
 
 
 def draft_items(row: sqlite3.Row) -> list[dict[str, Any]]:
@@ -84,6 +136,36 @@ def _public(row: sqlite3.Row) -> dict[str, Any]:
 
 def to_public(row: sqlite3.Row) -> dict[str, Any]:
     return _public(row)
+
+
+def to_summary(row: sqlite3.Row) -> dict[str, Any]:
+    """草稿箱列表用的**轻量**表示。
+
+    刻意不含 ``items`` 与 ``context_snapshot``：一次列 50 条的话那些字段会
+    把响应撑到几百 KB，而列表只需要"这是什么、多大、什么时候过期"。
+    要看全文走 ``GET /api/ingest/{draft_id}``。
+    """
+    items = draft_items(row)
+    first_title = str(items[0].get("title") or "") if items else ""
+    input_text = (row["input_text"] or "").strip()
+    return {
+        "draft_id": row["id"],
+        "status": row["status"],
+        "channel": row["channel"],
+        "item_count": len(items),
+        # 列表预览：优先第一个事项的标题，没有就用输入文本的开头
+        "preview": first_title or input_text[:120] or "（无内容）",
+        "input_text": input_text[:200] or None,
+        "error": row["error"],
+        "has_image": bool(row["image_path"]),
+        "llm_provider": row["llm_provider"],
+        "llm_model": row["llm_model"],
+        "llm_path": row["llm_path"],
+        "created_at": row["created_at"],
+        "expires_at": row["expires_at"],
+        "confirmed_at": row["confirmed_at"],
+        "created_item_ids": json.loads(row["created_item_ids"]) if row["created_item_ids"] else [],
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -358,3 +440,46 @@ def cleanup_expired(db, *, now: datetime | None = None) -> int:
     if removed:
         log.info("draft.cleanup %s", kv(removed=removed, before=moment))
     return removed
+
+
+def purge_drafts(db, ids: list[int]) -> tuple[list[int], list[int]]:
+    """**永久**删除指定草稿行，返回 ``(已删除, 未找到)``。
+
+    与 :func:`discard_draft` 的区别：丢弃只改状态、留痕；这里是真删行。
+    手工清理用，所以调用方应当把"不可恢复"写在最显眼的地方。
+
+    两件**绝不能**顺手做的事：
+
+    1. **不删图片文件。** ``media.store_image`` 按内容哈希命名
+       （``sha256[:16]``）且已存在就不重写，所以多个草稿可能共用同一个文件；
+       已确认的草稿更是永久保留 ``image_path``。图片的生命周期只由
+       :func:`app.housekeeping._purge_old_uploads` 按目录日期管。
+       在这里 unlink 会把别人的图删掉。
+    2. **不碰 items 表。** ``created_item_ids`` 只是个 JSON 数组，
+       ``items`` 与 ``ingest_drafts`` 之间没有外键——删草稿不会、也不该
+       删掉已经确认入库的任务。
+    """
+    wanted = sorted({int(value) for value in ids})
+    if not wanted:
+        return [], []
+
+    placeholders = ",".join("?" * len(wanted))
+    with db.transaction() as conn:
+        existing = {
+            int(row["id"])
+            for row in conn.execute(
+                f"SELECT id FROM ingest_drafts WHERE id IN ({placeholders})", wanted
+            )
+        }
+        if existing:
+            conn.execute(
+                f"DELETE FROM ingest_drafts WHERE id IN ({placeholders})", sorted(existing)
+            )
+
+    deleted = sorted(existing)
+    missing = [value for value in wanted if value not in existing]
+    log.warning(
+        "draft.purged %s",
+        kv(deleted=len(deleted), missing=len(missing), ids=deleted),
+    )
+    return deleted, missing

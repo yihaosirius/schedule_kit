@@ -30,7 +30,9 @@ DOCUMENTED_ROUTES: set[tuple[str, str, str]] = {
     ("POST", "/api/tasks", "write"),
     ("PATCH", "/api/tasks/{item_id}", "write"),
     ("DELETE", "/api/tasks/{item_id}", "write"),
+    ("GET", "/api/ingest", "read"),
     ("POST", "/api/ingest", "write"),
+    ("POST", "/api/ingest/purge", "session"),
     ("GET", "/api/ingest/{draft_id}", "read"),
     ("GET", "/api/ingest/{draft_id}/image", "read"),
     ("POST", "/api/ingest/{draft_id}/confirm", "write"),
@@ -52,6 +54,7 @@ DOCUMENTED_PAGES: set[tuple[str, str]] = {
     ("GET", "/login"),
     ("GET", "/courses"),
     ("GET", "/settings"),
+    ("GET", "/drafts"),
     ("GET", "/drafts/{draft_id}"),
     ("GET", "/sw.js"),
 }
