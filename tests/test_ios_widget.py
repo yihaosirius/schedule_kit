@@ -29,6 +29,7 @@ CLIENT_DIR = PROJECT_ROOT / "clients" / "ios"
 
 WIDGET_JS = CLIENT_DIR / "ScheduleKitWidget.js"
 PREVIEW_MJS = CLIENT_DIR / "preview.mjs"
+DIAGNOSE_JS = CLIENT_DIR / "diagnose.js"
 CLIENT_README = CLIENT_DIR / "README.md"
 
 NODE = shutil.which("node")
@@ -53,15 +54,37 @@ def read_code(path: Path) -> str:
 # --------------------------------------------------------------------------- #
 # 文件存在
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("path", [WIDGET_JS, PREVIEW_MJS, CLIENT_README])
+@pytest.mark.parametrize("path", [WIDGET_JS, PREVIEW_MJS, DIAGNOSE_JS, CLIENT_README])
 def test_client_artifacts_exist(path: Path) -> None:
     assert path.is_file(), f"缺少 {path.name}"
     assert path.stat().st_size > 0
 
 
-@pytest.mark.parametrize("path", [WIDGET_JS, PREVIEW_MJS])
+@pytest.mark.parametrize("path", [WIDGET_JS, PREVIEW_MJS, DIAGNOSE_JS])
 def test_no_crlf_in_client_scripts(path: Path) -> None:
     assert b"\r\n" not in path.read_bytes(), f"{path.name} 含 CRLF"
+
+
+@needs_node
+def test_diagnose_script_parses() -> None:
+    """诊断脚本本身要能跑 —— 它是在"什么都看不到"时唯一的排查手段。"""
+    import subprocess
+
+    completed = subprocess.run(
+        [NODE, "--check", str(DIAGNOSE_JS)],
+        cwd=str(PROJECT_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 0, f"diagnose.js 语法错误：\n{completed.stdout}"
+
+
+def test_diagnose_script_has_no_real_key() -> None:
+    text = read(DIAGNOSE_JS)
+    assert 'API_KEY = "sk_在这里粘贴只读密钥"' in text
+    assert not re.findall(r"sk_[A-Za-z0-9_-]{20,}", text)
 
 
 # --------------------------------------------------------------------------- #
@@ -134,11 +157,33 @@ def test_uses_the_three_existing_endpoints() -> None:
 
 
 def test_handles_both_widget_and_in_app_entry() -> None:
-    """在 App 里跑要走自检，不能直接渲染（那样什么都看不到）。"""
+    """在 App 里跑要走自检，不能直接渲染（那样什么都看不到）。
+
+    判断"是不是在小组件里"用 ``config.runsInWidget``，不要用
+    ``config.widgetFamily === null`` —— 后者依赖一个具体取值，
+    多一层不必要的假设。
+    """
     code = read_code(WIDGET_JS)
-    assert "config.widgetFamily === null" in code, "没有区分「在 App 里运行」与「在小组件里运行」"
+    assert "config.runsInWidget" in code, "没有用 runsInWidget 判断运行环境"
+    assert "config.widgetFamily === null" not in code
     assert "Script.setWidget" in code
     assert "refreshAfterDate" in code
+
+
+def test_widget_errors_are_rendered_not_swallowed() -> None:
+    """小组件里抛异常 = 一片空白，不报错也不超时。
+
+    这是 WidgetKit 的行为：脚本出错时系统只是不渲染。现象是"点开了、
+    服务器没收到请求、屏幕上啥都没有"。所以顶层必须有 try/catch，
+    出错时把原因画进方块里 —— 否则用户只能靠猜。
+    """
+    code = read_code(WIDGET_JS)
+    assert "async function main()" in code, "缺少可被兜住的入口函数"
+    assert "await main()" in code
+    assert "catch (err)" in code
+    # 兜底分支里必须仍然 setWidget —— 否则还是空白
+    tail = code.split("await main()")[1]
+    assert "Script.setWidget" in tail, "出错时没有渲染任何东西，用户看到的还是空白"
 
 
 def test_covers_every_widget_family() -> None:

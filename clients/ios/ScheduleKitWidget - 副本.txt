@@ -774,51 +774,13 @@ async function runInApp() {
 // ============================================================================
 // 入口
 // ============================================================================
-/* ⚠️ 小组件里**任何**异常都会让方块变成一片空白，而且不报错、不超时 ——
-   这是 WidgetKit 的行为：脚本出错时系统只是不渲染。
-   现象就是"点了、服务器也没收到请求、屏幕上啥都没有"。
-
-   所以这里把一切都兜住。没有这一层的话，你只能看到一片空白，然后开始猜。 */
-function describeError(err) {
-  if (!err) return "未知错误";
-  if (err.message) return err.message;
-  return String(err);
-}
-
-async function main() {
-  // 用 runsInWidget 而不是 widgetFamily === null：前者是"我是不是在小组件里"
-  // 的文档化判断，后者依赖一个具体取值，多一层不必要的假设。
-  if (config.runsInWidget) {
-    var data = await widgetData();
-    var widget = data.failed
-      ? buildErrorWidget(data.message)
-      : buildWidget(config.widgetFamily, data);
-    widget.refreshAfterDate = new Date(Date.now() + CONFIG.REFRESH_MINUTES * 60000);
-    Script.setWidget(widget);
-    Script.complete();
-    return;
-  }
+if (config.widgetFamily === null) {
+  // 在 App 里手动运行 —— 走自检，不要直接当小组件渲染（那样什么都看不到）
   await runInApp();
-}
-
-try {
-  await main();
-} catch (err) {
-  var detail = describeError(err);
-  if (config.runsInWidget) {
-    // 小组件里没法弹窗，就把错误画进方块里 —— 至少你能看见发生了什么
-    try {
-      var fallback = buildErrorWidget("脚本出错：" + detail);
-      Script.setWidget(fallback);
-      Script.complete();
-    } catch (nested) {
-      /* 连错误方块都画不出来，那就只能靠"在 App 里跑一遍"来定位了 */
-    }
-  } else {
-    var failure = new Alert();
-    failure.title = "脚本出错";
-    failure.message = detail + "\n\n" + (err && err.stack ? err.stack : "");
-    failure.addAction("好");
-    await failure.presentAlert();
-  }
+} else {
+  var data = await widgetData();
+  var widget = data.failed ? buildErrorWidget(data.message) : buildWidget(config.widgetFamily, data);
+  widget.refreshAfterDate = new Date(Date.now() + CONFIG.REFRESH_MINUTES * 60000);
+  Script.setWidget(widget);
+  Script.complete();
 }
