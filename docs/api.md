@@ -311,6 +311,12 @@ curl -X POST "$BASE/api/logout"
 
 返回 `ItemOut` 数组。无匹配时返回 `[]`（不是 404）。
 
+> **`ordered` 与 `unordered` 合起来就是全集。** deadline 与 priority 严格二选一
+> （§2 顶部），所以任何任务必定落在其中之一。首页的「已完成」栏就是靠这条性质
+> 取两次 `?status=done` 再合并的——**没有专门的已完成端点**，也不需要。
+> 合并后按 `completed_at` 倒序排（`completed_at` 是 UTC ISO8601，字典序即时间序），
+> 并列时按 `id` 倒序。
+
 ```bash
 curl -H "Authorization: Bearer $KEY" \
   "$BASE/api/tasks?view=ordered&status=open&limit=5"
@@ -953,7 +959,7 @@ curl -X PUT -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' 
 
 | 路径 | 未认证 | 已认证 |
 |---|---|---|
-| `GET /` | `303` → `/login` | `200` 任务双列表 |
+| `GET /` | `303` → `/login` | `200` 任务三栏（有序 / 无序 / 已完成） |
 | `GET /login` | `200` 登录页 | `303` → `/` |
 | `GET /courses` | `303` → `/login?next=/courses` | `200` 课表页 |
 | `GET /settings` | `303` → `/login?next=/settings` | `200` 控制台 |

@@ -59,7 +59,12 @@
 {% endmacro %}
 
 {% block body %}
-<main class="layout layout--split">
+{# 两栏：左主栏（有序表）+ 右侧栏。
+   侧栏里的两个面板必须包进同一个 .layout__column —— 网格是**按行**排布的，
+   直接往第 2 列丢多个面板，第二个会从"第 1 行最高的单元格"下面开始，
+   于是两栏之间裂开一大片空白（设置页踩过）。
+   这也是为什么加"已完成"不需要动 CSS 的列数：它在侧栏里纵向堆叠。 #}
+<main class="layout layout--split" data-completed-limit="{{ completed_limit }}">
   <section class="panel panel--major">
     <header>
       <h2>有序 · 有截止时间</h2>
@@ -102,16 +107,32 @@
     <p class="empty" data-empty-for="ordered"{% if ordered %} hidden{% endif %}>暂无带截止时间的任务</p>
   </section>
 
-  <details class="panel panel--minor" data-collapsible>
-    <summary>
-      <h2>无序 · 按优先级</h2>
-      <span class="count" data-count-for="unordered">{{ unordered | length }}</span>
-    </summary>
-    <ul class="task-list" data-list="unordered">
-      {% for item in unordered %}{{ task_row(item) }}{% endfor %}
-    </ul>
-    <p class="empty" data-empty-for="unordered"{% if unordered %} hidden{% endif %}>暂无仅按优先级排的任务</p>
-  </details>
+  <div class="layout__column">
+    <details class="panel panel--minor" data-collapsible>
+      <summary>
+        <h2>无序 · 按优先级</h2>
+        <span class="count" data-count-for="unordered">{{ unordered | length }}</span>
+      </summary>
+      <ul class="task-list" data-list="unordered">
+        {% for item in unordered %}{{ task_row(item) }}{% endfor %}
+      </ul>
+      <p class="empty" data-empty-for="unordered"{% if unordered %} hidden{% endif %}>暂无仅按优先级排的任务</p>
+    </details>
+
+    {# 已完成。勾选框是**选中**状态，点一下就是"撤销完成"（PATCH status=open），
+       所以这里不需要额外的按钮。
+       默认条数由 completed_limit 决定，JS 从 data-completed-limit 读同一个值。 #}
+    <details class="panel panel--minor" data-collapsible>
+      <summary>
+        <h2>已完成</h2>
+        <span class="count" data-count-for="completed">{{ completed | length }}</span>
+      </summary>
+      <ul class="task-list" data-list="completed">
+        {% for item in completed %}{{ task_row(item) }}{% endfor %}
+      </ul>
+      <p class="empty" data-empty-for="completed"{% if completed %} hidden{% endif %}>还没有完成的任务</p>
+    </details>
+  </div>
 </main>
 
 <button class="fab" type="button" data-action="focus-add" aria-label="添加任务">＋</button>

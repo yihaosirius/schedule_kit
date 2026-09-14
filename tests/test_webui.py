@@ -131,7 +131,7 @@ async def test_topbar_links_and_csrf_meta(session_client: AsyncClient) -> None:
 
 
 async def test_unordered_panel_is_collapsible(session_client: AsyncClient) -> None:
-    """移动端折叠无序表：它是 details/summary，且带 data-collapsible 交给 JS 定初值。"""
+    """移动端折叠侧栏面板：它们是 details/summary，且带 data-collapsible 交给 JS 定初值。"""
     html = (await session_client.get("/")).text
     assert re.search(r"<details[^>]*data-collapsible", html)
     assert "<summary>" in html

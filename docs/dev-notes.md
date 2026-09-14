@@ -431,5 +431,50 @@ if not parsed:
 一般化的教训：**"渲染了什么"和"提交了什么"是两件事，中间那条缝最容易丢数据。**
 新加字段时，检查一遍这几个地方：`_public()` → 模板 → `collect()` → `validate_client_items()`。
 
+---
+
+## 12. 往首页加一栏：别动列数
+
+首页原来两栏：主栏「有序」+ 侧栏「无序」。加「已完成」时**没有加第三个网格列**，
+而是把侧栏变成 `.layout__column`、里面纵向堆叠两个面板。
+
+**为什么不加第三列**：`.layout--split` 的列数写在 `docs/dev-notes.md` 和
+`tests/test_webui.py` 里，是显式契约（"两栏必须显式选用"那一节）。三列会让
+320px 的侧栏进一步摊薄，而且"两栏"这个名字就对不上了。
+堆叠还有一个好处：以后再往侧栏加面板完全不用碰 CSS。
+
+**但这里有个静默陷阱。** 原来的规则是：
+
+```css
+.layout--split > .panel--major  { grid-column: 1; }
+.layout--split > .panel--minor  { grid-column: 2; }
+```
+
+`>` 是**直接子元素**选择器。面板一旦包进 `.layout__column` 就不再匹配，
+第二条会**静默失效** —— 没有报错，两个侧栏面板会被自动排到第 1 列、
+和主栏叠在一起。所以必须换成：
+
+```css
+.layout--split > .layout__column { grid-column: 2; }
+```
+
+并且把那条已经匹配不到任何东西的旧规则删掉（`test_completed_panel.py` 里有断言，
+防止它被当成"还有用"留着误导人）。
+
+这和设置页那个"两栏之间裂开一大片空白"是同一类坑：**CSS 选择器失配不会报错。**
+改布局后一定要在宽视口下真的看一眼。
+
+### 「已完成」为什么不加接口
+
+`GET /api/tasks?status=done` 已经存在，而 deadline 与 priority 严格二选一，
+所以 `view=ordered` 与 `view=unordered` 合起来就是全集 —— 客户端取两次再合并即可。
+排序用 `completed_at` 倒序，服务端是 SQL 的 `ORDER BY completed_at DESC, id DESC`，
+客户端是 `byCompletedDesc()`，**没有共享实现**，所以两边都写了注释互相指向，
+并由用例在源码层面钉住这两条规则（`test_client_sort_matches_the_server_rule`）。
+
+条数上限 `COMPLETED_LIMIT` 只在 Python 里定义一次，通过 `data-completed-limit`
+传给模板、再由 JS 读 `dataset` —— 前端自己写一个常数的话，页面刚渲染出来的
+条数和刷新后的条数会不一致。
+
 
 

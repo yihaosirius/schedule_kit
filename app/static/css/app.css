@@ -175,7 +175,7 @@ button { font: inherit; }
   min-width: 0;
 }
 
-/* 首页：有序表主栏 + 无序表窄侧栏（无序表权重更小） */
+/* 首页：有序表主栏 + 窄侧栏（无序表与已完成，权重更小） */
 @media (min-width: 900px) {
   .layout--split {
     grid-template-columns: minmax(0, 1fr) 320px;
@@ -183,7 +183,12 @@ button { font: inherit; }
     max-width: 1180px;
   }
   .layout--split > .panel--major { grid-column: 1; }
-  .layout--split > .panel--minor { grid-column: 2; }
+  /* 侧栏是一个 .layout__column，里面纵向堆叠「无序」与「已完成」。
+     注意：这里**不能**再写 `.layout--split > .panel--minor` —— 面板包进
+     column 之后不再是直接子元素，那条规则会静默失效，两个侧栏面板会被
+     自动排到第 1 列去（和设置页那个"两栏之间裂开空白"是同一类坑）。
+     也正因为堆叠在侧栏里，加第三个面板不需要动列数。 */
+  .layout--split > .layout__column { grid-column: 2; }
 }
 
 /* 控制台：配置表单主栏 + 侧栏（密钥、运行状态） */

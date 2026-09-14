@@ -96,6 +96,32 @@ def list_items(
         return list(conn.execute(sql, params))
 
 
+#: 已完成面板最多显示多少条。渲染端与 refresh() 必须一致，
+#: 所以它由页面路由传给模板、再由模板交给 JS，不在前端另写一个常数。
+COMPLETED_LIMIT = 30
+
+
+def list_completed(db, *, limit: int = COMPLETED_LIMIT) -> list[sqlite3.Row]:
+    """已完成的任务，**最近完成的在前**。
+
+    单独一个函数而不是复用 :func:`list_items`：那两个视图是按 ``due_at`` /
+    ``priority`` 排的，对已完成的任务没有意义 —— 这里唯一有用的顺序是
+    "最近完成的"。
+
+    排序键 ``completed_at`` 是 UTC ISO8601 字符串，所以字典序即时间序；
+    前端 ``tasks.js`` 的 ``byCompletedDesc`` 用的是同一条规则
+    （同格式字符串直接比较），两边结果一致。改一个要改两个。
+    """
+    with db.connect() as conn:
+        return list(
+            conn.execute(
+                "SELECT * FROM items WHERE status = 'done'"
+                " ORDER BY completed_at DESC, id DESC LIMIT ?",
+                (int(limit),),
+            )
+        )
+
+
 def get_item(db, item_id: int) -> sqlite3.Row | None:
     with db.connect() as conn:
         return conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()

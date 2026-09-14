@@ -169,12 +169,42 @@
     return li;
   }
 
+  /* 「最近完成的在前」。
+     completed_at 是 UTC ISO8601，字典序即时间序 —— 与后端
+     list_completed() 的 `ORDER BY completed_at DESC, id DESC` 是同一条规则。
+     改一个要改两个。 */
+  function byCompletedDesc(a, b) {
+    const left = a.completed_at || "";
+    const right = b.completed_at || "";
+    if (left !== right) return left < right ? 1 : -1;
+    return b.id - a.id;
+  }
+
+  /* 上限由服务端通过 data-completed-limit 传下来，前端不再写一个常数：
+     否则页面刚渲染出来的条数和刷新后的条数会不一致。 */
+  const page = document.querySelector(".layout--split");
+  const COMPLETED_LIMIT = Number(page && page.dataset.completedLimit) || 30;
+
   async function refresh() {
-    const [ordered, unordered] = await Promise.all([
+    const [ordered, unordered, doneOrdered, doneUnordered] = await Promise.all([
       api("GET", "/api/tasks?view=ordered&status=open"),
       api("GET", "/api/tasks?view=unordered&status=open"),
+      // 已完成没有专门的接口，用现有端点取两次再合并：
+      // deadline 与 priority 严格二选一，所以两个视图合起来就是全集。
+      api("GET", `/api/tasks?view=ordered&status=done&limit=${COMPLETED_LIMIT}`),
+      api("GET", `/api/tasks?view=unordered&status=done&limit=${COMPLETED_LIMIT}`),
     ]);
-    for (const [view, items] of [["ordered", ordered], ["unordered", unordered]]) {
+
+    const completed = doneOrdered
+      .concat(doneUnordered)
+      .sort(byCompletedDesc)
+      .slice(0, COMPLETED_LIMIT);
+
+    for (const [view, items] of [
+      ["ordered", ordered],
+      ["unordered", unordered],
+      ["completed", completed],
+    ]) {
       const list = document.querySelector(`[data-list="${view}"]`);
       list.replaceChildren(...items.map(renderRow));
       document.querySelector(`[data-count-for="${view}"]`).textContent = items.length;
@@ -251,10 +281,10 @@
     /* 退出登录由 app.js 统一处理（顶栏在每个页面都有） */
   });
 
-  /* 移动端把无序表折叠起来：它权重更小，不该占首屏。
-     只在载入时按视口定一次初值，之后交给用户自己开合。 */
-  const collapsible = document.querySelector("[data-collapsible]");
-  if (collapsible) {
-    collapsible.open = window.matchMedia("(min-width: 900px)").matches;
-  }
+  /* 移动端把侧栏面板折叠起来：它们权重更小，不该占首屏。
+     只在载入时按视口定一次初值，之后交给用户自己开合。
+     用 querySelectorAll —— 侧栏里现在有「无序」和「已完成」两个。 */
+  const collapsibles = document.querySelectorAll("[data-collapsible]");
+  const wide = window.matchMedia("(min-width: 900px)").matches;
+  collapsibles.forEach((panel) => { panel.open = wide; });
 })();

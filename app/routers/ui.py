@@ -65,6 +65,9 @@ def index(request: Request):
         "index.html",
         ordered=task_service.list_items(db, view="ordered", status="open"),
         unordered=task_service.list_items(db, view="unordered", status="open"),
+        completed=task_service.list_completed(db),
+        # 渲染端与 refresh() 的上限必须一致，所以从这里传下去
+        completed_limit=task_service.COMPLETED_LIMIT,
         active="tasks",
     )
 
