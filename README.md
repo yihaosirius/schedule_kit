@@ -23,6 +23,7 @@
 | [`docs/dev-notes.md`](docs/dev-notes.md) | trace 日志约定、开发环境坑、数据集不变量 |
 | [`deploy/README.md`](deploy/README.md) | 部署步骤与排障 |
 | [`clients/windows/README.md`](clients/windows/README.md) | 悬浮窗安装与排障 |
+| [`clients/ios/README.md`](clients/ios/README.md) | iPhone 小组件安装与排障（Scriptable，无需 Mac） |
 
 ## 本地开发
 
@@ -78,6 +79,7 @@ app/                服务端（唯一 Python 包）
   llm/              统一适配器（Responses API + 强制 function calling + JSON 降级）
   templates/ static/  无构建步骤的前端
 clients/windows/    PowerShell + WinForms 悬浮窗
+clients/ios/        Scriptable 小组件脚本 + Node 预览器
 deploy/             install.sh / Caddyfile 模板 / systemd 单元
 docs/               接口、快捷指令、小组件、开发笔记
 tests/              pytest（全程不访问网络）
@@ -98,4 +100,5 @@ data/               运行时生成，不入库
 | M6 | 部署产物（install.sh / Caddy / acme.sh / systemd） | ✅ |
 | M7 | Windows 悬浮窗 + 开机自启 | ✅ |
 | M8 | PWA 外壳 + 文档 | ✅ |
-| v2 | Scriptable 小组件、ntfy 推送、课表截图识别、MCP server | 未开始 |
+| v2-a | iPhone 小组件（Scriptable，桌面 + 锁屏） | ✅ |
+| v2-b | ntfy 推送、课表截图识别、MCP server | 未开始 |
