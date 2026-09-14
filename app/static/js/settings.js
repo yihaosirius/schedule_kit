@@ -37,6 +37,8 @@
       max_tokens: Number(data.get("max_tokens") || 1024),
       max_image_bytes: Math.max(1, Number(data.get("max_image_mb") || 8)) * 1048576,
       system_prompt: data.get("system_prompt") || "",
+      retry_count: Number(data.get("retry_count") || 0),
+      retry_backoff_seconds: Number(data.get("retry_backoff_seconds") || 0),
     };
 
     // 只有用户真的动过密钥框才提交该字段

@@ -7,7 +7,7 @@
 ## 核心特征
 
 - **双列表**：有 deadline 的进有序表（按时间升序），无 deadline 的进无序表（按 Ⅰ–Ⅴ 排序）；无序表 UI 权重更小，移动端默认折叠。
-- **两阶段录入**：图片/文本 → LLM 以 function calling 返回结构化草稿 → 人工确认/修改后才入库。**草稿阶段任务表零写入**。
+- **两阶段录入**：图片/文本 → LLM 以强制 function calling 返回结构化草稿 → 人工确认/修改后才入库。**草稿阶段任务表零写入**。模型没按工具调用返回时自动降级到 JSON 一次，并在确认页标明。
 - **课表上下文**：注入「现在正在上/刚结束/即将开始哪门课」，让「下节课交」这类相对指代能被解析成具体日期。
 - **单一配置文件**：全服务器只有 `/etc/schedulekit/config.toml`，控制台可改且**保留注释**。
 - **低内存**：uvicorn + Caddy 合计约 100–140MB。
@@ -75,7 +75,7 @@ sudo bash deploy/install.sh          # 改完配置后幂等重部署
 app/                服务端（唯一 Python 包）
   routers/          只做鉴权与参数校验
   services/         业务规则，可脱离 HTTP 单测
-  llm/              统一适配器（function calling）
+  llm/              统一适配器（Responses API + 强制 function calling + JSON 降级）
   templates/ static/  无构建步骤的前端
 clients/windows/    PowerShell + WinForms 悬浮窗
 deploy/             install.sh / Caddyfile 模板 / systemd 单元

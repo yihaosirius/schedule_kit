@@ -17,6 +17,7 @@ from app.config import ConfigError
 from app.deps import AuthDep, SessionDep, SessionWriteDep
 from app.llm import build_llm
 from app.llm.base import LLMNotConfigured
+from app.llm.registry import SUPPORTED_PROVIDERS
 from app.logging import get_logger, kv
 from app.services import apikeys as apikey_service
 from app.status import runtime_status
@@ -40,6 +41,9 @@ class LLMSettingsIn(BaseModel):
     max_tokens: int = Field(default=1024, ge=64, le=32000)
     max_image_bytes: int = Field(default=8 * 1024 * 1024, ge=64 * 1024, le=32 * 1024 * 1024)
     system_prompt: str = Field(default="", max_length=20000)
+    #: 重试次数（不含首次尝试）。上限 5：再多也只会把手机端请求拖死。
+    retry_count: int = Field(default=3, ge=0, le=5)
+    retry_backoff_seconds: float = Field(default=0.8, ge=0.0, le=10.0)
 
 
 def _llm_view(request: Request) -> dict[str, Any]:
@@ -54,6 +58,8 @@ def _llm_view(request: Request) -> dict[str, Any]:
         "max_tokens": cfg.llm.max_tokens,
         "max_image_bytes": cfg.llm.max_image_bytes,
         "system_prompt": cfg.llm.system_prompt,
+        "retry_count": cfg.llm.retry_count,
+        "retry_backoff_seconds": cfg.llm.retry_backoff_seconds,
         "ready": request.app.state.llm is not None,
         "error": request.app.state.llm_error,
     }
@@ -76,8 +82,17 @@ def put_settings(
 ) -> dict[str, Any]:
     cfg = request.app.state.config
 
+    provider = payload.provider.strip()
+    if provider not in SUPPORTED_PROVIDERS:
+        # 与其把个拼错的 provider 存进配置、再让构建适配器时软失败，
+        # 不如当场挡下来并列出可选值。
+        raise HTTPException(
+            status_code=422,
+            detail=f"不支持的 provider：{provider!r}。可选：{', '.join(SUPPORTED_PROVIDERS)}",
+        )
+
     values: dict[str, Any] = {
-        "provider": payload.provider.strip(),
+        "provider": provider,
         "base_url": payload.base_url.strip(),
         "model": payload.model.strip(),
         "temperature": payload.temperature,
@@ -85,6 +100,8 @@ def put_settings(
         "max_tokens": payload.max_tokens,
         "max_image_bytes": payload.max_image_bytes,
         "system_prompt": payload.system_prompt,
+        "retry_count": payload.retry_count,
+        "retry_backoff_seconds": payload.retry_backoff_seconds,
     }
     if payload.api_key is not None:
         values["api_key"] = payload.api_key.strip()

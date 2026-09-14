@@ -75,6 +75,7 @@ def _public(row: sqlite3.Row) -> dict[str, Any]:
         "error": row["error"],
         "llm_provider": row["llm_provider"],
         "llm_model": row["llm_model"],
+        "llm_path": row["llm_path"],
         "created_at": row["created_at"],
         "expires_at": row["expires_at"],
         "created_item_ids": json.loads(row["created_item_ids"]) if row["created_item_ids"] else [],
@@ -101,14 +102,16 @@ def create_draft(
     llm_provider: str | None = None,
     llm_model: str | None = None,
     llm_raw: str | None = None,
+    llm_path: str | None = None,
 ) -> sqlite3.Row:
     created_at = now_utc()
     expires_at = created_at + timedelta(hours=max(1, ttl_hours))
     with db.transaction() as conn:
         cursor = conn.execute(
             "INSERT INTO ingest_drafts(status, channel, image_path, image_sha256, input_text,"
-            " context_snapshot, llm_provider, llm_model, llm_raw, draft_json, created_at, expires_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " context_snapshot, llm_provider, llm_model, llm_raw, llm_path, draft_json,"
+            " created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 STATUS_PENDING,
                 channel,
@@ -119,6 +122,7 @@ def create_draft(
                 llm_provider,
                 llm_model,
                 llm_raw,
+                llm_path,
                 json.dumps({"items": items}, ensure_ascii=False),
                 utc_iso(created_at),
                 utc_iso(expires_at),
@@ -130,7 +134,7 @@ def create_draft(
     log.info(
         "draft.created %s",
         kv(draft_id=draft_id, channel=channel, items=len(items), ttl_hours=ttl_hours,
-           image=bool(image_path), provider=llm_provider),
+           image=bool(image_path), provider=llm_provider, path=llm_path),
     )
     return row
 
@@ -148,6 +152,7 @@ def create_failed_draft(
     llm_provider: str | None = None,
     llm_model: str | None = None,
     llm_raw: str | None = None,
+    llm_path: str | None = None,
 ) -> sqlite3.Row:
     """识别失败也要留档：保留 llm_raw 才能在事后判断是模型的问题还是我们的。"""
     created_at = now_utc()
@@ -155,8 +160,9 @@ def create_failed_draft(
     with db.transaction() as conn:
         cursor = conn.execute(
             "INSERT INTO ingest_drafts(status, channel, image_path, image_sha256, input_text,"
-            " context_snapshot, llm_provider, llm_model, llm_raw, draft_json, error, created_at, expires_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " context_snapshot, llm_provider, llm_model, llm_raw, llm_path, draft_json, error,"
+            " created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 STATUS_FAILED,
                 channel,
@@ -167,6 +173,7 @@ def create_failed_draft(
                 llm_provider,
                 llm_model,
                 llm_raw,
+                llm_path,
                 json.dumps({"items": []}, ensure_ascii=False),
                 error,
                 utc_iso(created_at),

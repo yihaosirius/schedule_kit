@@ -28,21 +28,31 @@
         <label class="settings-field">
           <span>协议</span>
           <select name="provider">
-            <option value="openai_compat"{% if llm.provider == 'openai_compat' %} selected{% endif %}>OpenAI 兼容</option>
+            <option value="responses"{% if llm.provider == 'responses' %} selected{% endif %}>Responses API（推荐）</option>
+            <option value="openai_compat"{% if llm.provider == 'openai_compat' %} selected{% endif %}>Chat Completions 兼容</option>
             <option value="mock"{% if llm.provider == 'mock' %} selected{% endif %}>mock（离线测试）</option>
           </select>
+          <small class="hint">
+            Responses 打 <code>{base_url}/responses</code>，DeepSeek / OpenAI 用这个。
+            只有 Chat Completions 的供应商（通义、硅基流动等）才选第二项——那一侧
+            服务端要求关闭 thinking 模式才允许强制工具调用，适配器已经代劳。
+          </small>
         </label>
 
         <label class="settings-field">
           <span>模型</span>
-          <input type="text" name="model" value="{{ llm.model }}" placeholder="deepseek-vl2">
+          <input type="text" name="model" value="{{ llm.model }}" placeholder="deepseek-flash">
         </label>
       </div>
 
       <label class="settings-field">
         <span>Base URL</span>
         <input type="text" name="base_url" value="{{ llm.base_url }}"
-               placeholder="https://api.deepseek.com/v1">
+               placeholder="https://api.deepseek.com">
+        <small class="hint">
+          Responses 填域名即可（<code>https://api.deepseek.com</code>），路径由适配器补。
+          Chat Completions 一般要写到 <code>https://api.deepseek.com/v1</code>。
+        </small>
       </label>
 
       <label class="settings-field">
@@ -67,11 +77,26 @@
         <label class="settings-field">
           <span>max_tokens</span>
           <input type="number" name="max_tokens" min="64" max="32000" value="{{ llm.max_tokens }}">
+          <small class="hint">Responses 里它叫 max_output_tokens，且**包含**思考 token。</small>
         </label>
         <label class="settings-field">
           <span>图片上限（MB）</span>
           <input type="number" name="max_image_mb" min="1" max="32"
                  value="{{ (llm.max_image_bytes // 1048576) or 1 }}">
+        </label>
+        <label class="settings-field">
+          <span>失败重试次数</span>
+          <input type="number" name="retry_count" min="0" max="5" value="{{ llm.retry_count }}">
+          <small class="hint">
+            仅对临时性失败生效（连不上、超时、429、5xx）。不含首次尝试，
+            0 表示不重试。401/400 这类确定性错误不重试——再发一百次也一样。
+          </small>
+        </label>
+        <label class="settings-field">
+          <span>退避基数（秒）</span>
+          <input type="number" name="retry_backoff_seconds" step="0.1" min="0" max="10"
+                 value="{{ llm.retry_backoff_seconds }}">
+          <small class="hint">按指数增长并加抖动：0.8 → 1.6 → 3.2。带 Retry-After 时以它为准（上限 8 秒）。</small>
         </label>
       </div>
 

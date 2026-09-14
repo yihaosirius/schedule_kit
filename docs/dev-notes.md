@@ -14,8 +14,8 @@
 2026-03-20T14:32:01.123 INFO  sk.http          [t=8f3a2b1c] request.start method=POST path=/api/ingest auth=apikey
 2026-03-20T14:32:01.150 INFO  sk.ingest        [t=8f3a2b1c] ingest.received channel=image mime=image/jpeg bytes=1048576 sha256=3f9a…(len=64)
 2026-03-20T14:32:01.160 INFO  sk.context       [t=8f3a2b1c] context.built in_term=true week=4 lines=6 chars=182
-2026-03-20T14:32:02.980 INFO  sk.llm           [t=8f3a2b1c] llm.request provider=openai_compat model=deepseek-vl2 images=1 system_chars=412 user_chars=210
-2026-03-20T14:32:05.789 INFO  sk.llm           [t=8f3a2b1c] llm.response elapsed_ms=2809 tool_call=submit_tasks items=2 raw_chars=420
+2026-03-20T14:32:02.980 INFO  sk.llm           [t=8f3a2b1c] llm.request provider=responses model=deepseek-flash endpoint=https://api.deepseek.com/responses tier=tool_call images=1
+2026-03-20T14:32:05.789 INFO  sk.llm           [t=8f3a2b1c] llm.response tier=tool_call items=2 raw_chars=420 attempts=1 elapsed_ms=2809 input_tokens=1180 output_tokens=210
 2026-03-20T14:32:05.801 INFO  sk.normalize     [t=8f3a2b1c] normalize.item index=0 has_due=true priority_dropped=2 due_at=2026-03-27T15:59:00+00:00
 2026-03-20T14:32:05.803 WARNING sk.normalize   [t=8f3a2b1c] normalize.item index=1 needs_priority=true defaulted=3
 2026-03-20T14:32:05.820 INFO  sk.http          [t=8f3a2b1c] request.end status=201 elapsed_ms=4697
@@ -235,4 +235,57 @@ Get-Content out.log | Select-String "^Error"
 改 Caddyfile 模板后，**先在本地跑一遍 validate 再推**。这条已经写进
 `tests/test_deploy.py` 的断言里（禁止非内置模块、必须带 `--adapter`），
 但那只能挡住已知的坑，跑一遍真校验才挡得住未知的。
+
+---
+
+## 7. LLM 适配器：一次"每请求必 400"的教训
+
+### 症状与真因
+
+旧适配器打 `/chat/completions`，发的是命名工具选择
+`{"type":"function","function":{"name":"submit_tasks"}}`，且**从不带
+`thinking` 字段**。DeepSeek 的 chat 文档写着：
+
+> `required` and named tool choices are **not supported in thinking mode**;
+> the API returns a **400 error**. Disable thinking mode first to use them.
+
+而 `thinking.type` 的**默认值是 `enabled`**。所以每个请求都是 400。
+更糟的是旧代码的错误提示写成"该供应商可能不支持强制 tool_choice，
+请换模型或供应商"——**把病因指错了**，照着它去换供应商只会白费功夫。
+
+顺带两个被掩盖的问题：`temperature` 在 thinking 模式下**完全无效**
+（配的 `temperature = 0` 一直是被静默忽略的），而思考 token 照价计费。
+
+### 为什么没被测出来
+
+`tests/` 里所有录入用例都走 `MockLLM`，**适配器的 payload 从来没有被断言过**。
+`tests/test_llm.py` 现在逐字段断言实际发出的 JSON，就是补这个洞。
+
+教训：把"协议报文长什么样"当成需要断言的事实，而不是实现细节。
+凡是靠"应该没问题"的字段（默认值、可选开关），都要有一条用例钉住。
+
+### 现在的约定
+
+| 约定 | 原因 |
+|---|---|
+| 命名 `tool_choice` 与 thinking **不可共存** | 两边文档对 Responses 是否也 400 说法不一致，显式 `effort: "none"` / `type: "disabled"` 就不用赌 |
+| 默认走 `/responses` | 工具调用是 `output[]` 的一等公民；`text.format` 原生支持 JSON 降级 |
+| 工具与 `tool_choice` 在 Responses 里是**扁平**的 | 嵌套 `function` 是 chat 的形状，照抄会被拒 |
+| `parallel_tool_calls` 在 Responses 里**被忽略** | 并行恒开，必须合并所有 `function_call`，只取第一个会丢数据 |
+| 临时性失败才重试 | 401/400 再发一百次也一样；重试与降级是两套正交策略，不要串成 8 次请求 |
+| 降级必须响亮 | 日志 + `llm_path` 列 + 确认页提示；悄悄降级会让"模型开始不按工具调用返回"这件事无声无息地变成常态 |
+
+### 两处刻意的取舍
+
+**降级用 `json_object` 而不是 `json_schema`。** `json_schema` 走约束解码，
+要求 schema 里所有属性都进 `required`、且不支持 `type: ["string","null"]`
+这种联合类型——我们这个 schema 两条都不满足，很可能直接被 400。
+`json_object` 是两边文档都保证支持的，格式漂移交给
+`app/services/normalize.py` 兜底。等有真实 key 时可以实测一下
+`json_schema` 是否被接受，接受的话是一行切换。
+
+**重试有 180 秒总预算。** `retry_count=3` + `timeout_seconds=60` 最坏是
+4 分钟，手机端的快捷指令等不了。超预算就停手，并在日志里写明是预算砍掉的
+（`llm.retry_budget_exhausted`），而不是供应商恢复了。
+
 

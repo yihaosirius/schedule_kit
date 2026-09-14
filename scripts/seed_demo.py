@@ -22,6 +22,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config import Config  # noqa: E402
 from app.db import Database  # noqa: E402
+from app.llm.base import PATH_TOOL_CALL  # noqa: E402
 from app.migrations.runner import apply_migrations  # noqa: E402
 from app.services import context as context_service  # noqa: E402
 from app.services import courses as course_service  # noqa: E402
@@ -202,9 +203,10 @@ def seed_draft(db: Database, config: Config) -> int:
         image_path=stored.relative_path,
         image_sha256=stored.sha256,
         context_snapshot=snapshot,
-        llm_provider="openai_compat",
+        llm_provider="responses",
         llm_model=config.llm.model,
         llm_raw='{"items":[...]}  （演示数据）',
+        llm_path=PATH_TOOL_CALL,
     )
     return int(row["id"])
 

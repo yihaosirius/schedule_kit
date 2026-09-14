@@ -38,6 +38,17 @@
         </div>
       {% endif %}
 
+      {# 降级通道必须显眼。悄悄降级的话，"模型开始不按工具调用返回"这件事会
+         被无声吞掉，等到发现时已经不知道退化了多久。 #}
+      {% if draft.llm_path == 'json_fallback' %}
+        <p class="callout callout--warn" data-draft-fallback>
+          <strong>本次走的是 JSON 降级通道</strong>——模型没有正常返回工具调用，
+          服务端改用 JSON 模式重取了一遍。识别结果通常没问题，但值得留意：
+          如果这条提示反复出现，说明当前模型对强制 <code>tool_choice</code> 支持不好，
+          该换个模型或供应商了。
+        </p>
+      {% endif %}
+
       {% if draft.context_snapshot %}
         <details class="draft-context">
           <summary>本次识别依据的时间上下文</summary>

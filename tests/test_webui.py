@@ -254,6 +254,16 @@ async def test_settings_page_stacks_its_sidebar(session_client: AsyncClient) -> 
     assert "运行状态" in sidebar, "运行状态面板应与密钥面板同容器，不能各自独占一行"
 
 
+async def test_settings_page_lists_every_provider(session_client: AsyncClient) -> None:
+    """三个协议都要能选，且重试参数要能在页面上改。"""
+    html = (await session_client.get("/settings")).text
+    for provider in ("responses", "openai_compat", "mock"):
+        assert f'value="{provider}"' in html, f"协议下拉里缺少 {provider}"
+    assert "deepseek-flash" in html, "模型占位符要给出真实可用的例子"
+    assert 'name="retry_count"' in html
+    assert 'name="retry_backoff_seconds"' in html
+
+
 @pytest.mark.parametrize("path", ["/courses"])
 async def test_content_pages_use_a_single_column(
     session_client: AsyncClient, path: str

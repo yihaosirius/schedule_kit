@@ -104,6 +104,8 @@ def settings_page(request: Request):
             "max_tokens": cfg.llm.max_tokens,
             "max_image_bytes": cfg.llm.max_image_bytes,
             "system_prompt": cfg.llm.system_prompt,
+            "retry_count": cfg.llm.retry_count,
+            "retry_backoff_seconds": cfg.llm.retry_backoff_seconds,
         },
         keys=apikey_service.list_keys(db),
         ingest={"confirm_ttl_hours": cfg.ingest.confirm_ttl_hours},

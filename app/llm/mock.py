@@ -11,7 +11,13 @@ from __future__ import annotations
 import json
 import time
 
-from app.llm.base import LLMError, LLMResult, LLMToolCallMissing, VisionLLM
+from app.llm.base import (
+    PATH_TOOL_CALL,
+    LLMError,
+    LLMResult,
+    LLMToolCallMissing,
+    VisionLLM,
+)
 
 
 class MockLLM(VisionLLM):
@@ -25,10 +31,14 @@ class MockLLM(VisionLLM):
         *,
         error: Exception | None = None,
         echo_user_text: bool = False,
+        path: str = PATH_TOOL_CALL,
+        fallback_note: str | None = None,
     ) -> None:
         self._items = items if items is not None else []
         self._error = error
         self._echo_user_text = echo_user_text
+        self._path = path
+        self._fallback_note = fallback_note
         self.calls: list[dict] = []
 
     async def extract(
@@ -52,6 +62,8 @@ class MockLLM(VisionLLM):
             provider=self.name,
             model="mock-model",
             elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            path=self._path,
+            fallback_note=self._fallback_note,
         )
 
 

@@ -111,6 +111,41 @@ async def test_settings_survive_a_config_reload(session_client: AsyncClient, con
     assert Config(config.path).llm.model == "persisted"
 
 
+async def test_unknown_provider_is_rejected_with_the_valid_choices(
+    session_client: AsyncClient, config: Config
+) -> None:
+    """拼错的 provider 要当场挡下，而不是存进配置再软失败。"""
+    response = await session_client.put(
+        "/api/settings", json={"provider": "deepsek", "model": "m"}
+    )
+    assert response.status_code == 422
+    assert "responses" in response.text
+    # 配置没被改动
+    assert Config(config.path).llm.provider == "mock"
+
+
+async def test_retry_settings_round_trip(session_client: AsyncClient, config: Config) -> None:
+    response = await session_client.put(
+        "/api/settings",
+        json={"provider": "mock", "model": "m", "retry_count": 5, "retry_backoff_seconds": 1.5},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["retry_count"] == 5
+    assert body["retry_backoff_seconds"] == 1.5
+
+    reloaded = Config(config.path).llm
+    assert (reloaded.retry_count, reloaded.retry_backoff_seconds) == (5, 1.5)
+
+
+async def test_retry_count_is_bounded(session_client: AsyncClient) -> None:
+    """上限 5：再多也只会把手机端请求拖死。"""
+    response = await session_client.put(
+        "/api/settings", json={"provider": "mock", "model": "m", "retry_count": 99}
+    )
+    assert response.status_code == 422
+
+
 async def test_settings_save_preserves_config_comments(
     session_client: AsyncClient, config: Config
 ) -> None:

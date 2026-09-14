@@ -111,6 +111,11 @@ class LLMSection:
     max_tokens: int
     max_image_bytes: int
     system_prompt: str
+    #: 临时性失败（连接、超时、429、5xx）在放弃前的**重试次数**，
+    #: 不含首次尝试。所以总请求数最多是 ``retry_count + 1``。
+    retry_count: int
+    #: 退避基数（秒），按指数增长并加抖动。
+    retry_backoff_seconds: float
 
     @property
     def api_key_set(self) -> bool:
@@ -232,7 +237,7 @@ class Config:
             total_weeks=int(term.get("total_weeks", 18)),
         )
         self.llm = LLMSection(
-            provider=str(llm.get("provider", "openai_compat")),
+            provider=str(llm.get("provider", "responses")),
             base_url=str(llm.get("base_url", "")).rstrip("/"),
             model=str(llm.get("model", "")),
             api_key=str(llm.get("api_key", "")),
@@ -241,6 +246,8 @@ class Config:
             max_tokens=int(llm.get("max_tokens", 1024)),
             max_image_bytes=int(llm.get("max_image_bytes", 8 * 1024 * 1024)),
             system_prompt=str(llm.get("system_prompt", "")),
+            retry_count=int(llm.get("retry_count", 3)),
+            retry_backoff_seconds=float(llm.get("retry_backoff_seconds", 0.8)),
         )
         self.ingest = IngestSection(
             confirm_ttl_hours=int(ingest.get("confirm_ttl_hours", 48)),
@@ -367,6 +374,8 @@ class Config:
                 "max_tokens": self.llm.max_tokens,
                 "max_image_bytes": self.llm.max_image_bytes,
                 "system_prompt": self.llm.system_prompt,
+                "retry_count": self.llm.retry_count,
+                "retry_backoff_seconds": self.llm.retry_backoff_seconds,
             },
             "ingest": {"confirm_ttl_hours": self.ingest.confirm_ttl_hours},
             "tls": {

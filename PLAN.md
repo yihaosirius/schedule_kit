@@ -66,13 +66,13 @@ start_date  = "2026-03-02" # 第 1 周的周一，每学期手改一次
 total_weeks = 18
 
 [llm]
-provider        = "openai_compat"
-base_url        = "https://api.deepseek.com/v1"
-model           = "deepseek-vl2"
+provider        = "responses"   # responses | openai_compat | mock
+base_url        = "https://api.deepseek.com"
+model           = "deepseek-flash"
 api_key         = ""
 temperature     = 0.0
 timeout_seconds = 60
-max_tokens      = 1024     # 精简输出的硬保险
+max_tokens      = 1024     # 精简输出的硬保险（Responses 里叫 max_output_tokens）
 max_image_bytes = 8388608
 system_prompt   = """
 从图片或文本中抽取所有可执行事项，调用 submit_tasks 提交。只调用工具，不输出任何解释文字。
@@ -159,9 +159,11 @@ D:\schedule_kit\
 │   │   └── context.py          # 时间上下文纯函数（重点单测）
 │   │
 │   ├── llm/
-│   │   ├── base.py             # VisionLLM 协议 + LLMResult
+│   │   ├── base.py             # VisionLLM 协议 + LLMResult + 错误分级
 │   │   ├── registry.py         # provider 名 → 适配器
-│   │   ├── openai_compat.py    # function calling 实现
+│   │   ├── structured.py       # 共享编排：重试策略 + 通道降级
+│   │   ├── responses.py        # /responses 传输层（默认）
+│   │   ├── chat.py             # /chat/completions 传输层（备选）
 │   │   ├── tools.py            # submit_tasks 的 JSON Schema（唯一真相）
 │   │   └── mock.py             # 测试用
 │   │
@@ -365,11 +367,16 @@ class VisionLLM(Protocol):
 ```
 
 - `required` 仅 4 个核心字段；`notes`/`source_quote` 选填，无内容时模型直接不输出该键。
-- 请求体带 `tool_choice: {"type":"function","function":{"name":"submit_tasks"}}`、`parallel_tool_calls: false`、`temperature: 0`、`max_tokens: 1024`。
-- 适配器从 `response.choices[0].message.tool_calls[0].function.arguments` 取 JSON 字符串后 `json.loads`。
-- **未产生 tool call ⇒ 直接判失败**（草稿置 `failed`，保留 `llm_raw`），不退回文本解析。
-- **不做能力探测、不做多档回退**：供应商不支持强制 function calling 即视为不支持，配置页给出明确报错。
-- `api_key` 用 Fernet 加密后写回 config.toml；控制台永不回显明文。
+- 请求默认走 **Responses API**（`{base_url}/responses`）：`tool_choice: {"type":"function","name":"submit_tasks"}`（**扁平**，没有嵌套 `function`）、`reasoning: {"effort":"none"}`（关 thinking）、`temperature: 0`、`max_output_tokens: 1024`。
+- 工具定义也是扁平的 `{"type":"function","name","description","parameters"}`；`max_tokens` 改名 `max_output_tokens` 且**包含**思考 token。
+- **必须显式关闭 thinking**：命名 `tool_choice` 在 thinking 模式下会被服务端 `400` 拒绝，而 `thinking` / `reasoning` 的默认值是开启。chat 传输层同理（`thinking: {"type":"disabled"}`）。
+- `parallel_tool_calls` 在 Responses 里**被忽略**（并行恒开），所以一条响应可能有多个 `function_call`，必须全部合并。
+- 适配器从 `output[]` 里取 `type == "function_call"` 的项，`json.loads(arguments)` 后合并 `items`。
+- **未产生 tool call ⇒ 自动降级到 JSON 输出一次**（`text.format` / `response_format` 置 `json_object`，并在 prompt 追加 JSON 格式说明）。降级是响亮的：写 `llm.fallback_used` 警告日志、草稿记 `llm_path`、确认页显示提示。
+- 临时性失败（连接、超时、429、5xx）按 `retry_count` 重试（默认 3 次），指数退避 + 抖动，另有 180 秒总预算兜底。确定性错误（401/403/400 等）不重试。
+- 两条通道都失败 ⇒ 草稿置 `failed`，保留 `llm_raw`，报错里带上**每条通道各自的原因**。
+- **不做能力探测**：`provider` 写的是什么就用什么，配置页对不支持的取值直接报错。
+- `api_key` 以明文存于 `config.toml`（该文件本身按 0600 保护）；控制台永不回显明文。
 
 **`source_quote` 的作用**：图里支撑该判定的原文片段，让确认页可核对"它从哪儿读出来的"。若为空或与图片不符，即说明模型幻觉，可当场发现。同时用于区分识别错误的来源（上下文算错 vs 模型理解错）。
 
@@ -500,7 +507,7 @@ sudo bash deploy/install.sh          # 幂等部署
 - *大陆运营商拦截非标端口或 SNI 过滤*：退路为换端口或 Cloudflare Tunnel（需域名）。
 - *境外 DNS 解析慢*（§15 实测 200–780ms）：可平滑升级至方案 C。
 - *证书签发跨境超时*：脚本区分"改 TXT 失败"与"CA 查询失败"两类报错；退路为 ZeroSSL 或方案 C。
-- *LLM 不支持强制 tool_choice*：配置页明确报错，不做静默降级。
+- *LLM 不支持强制 tool_choice*：先自动降级到 JSON 输出一次（响亮记录），仍失败则明确报错；不静默忍受。
 - *课表调休不准*：已知限制，需在任务里写清日期；不做节假日建模。
 
 **明确不做（本期）**：提醒推送、Scriptable 小组件、离线可用、多用户、任务重复规则、附件存储、重复任务去重、审计留痕、课表截图识别、主界面显示今日课程。

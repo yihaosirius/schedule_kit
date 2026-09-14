@@ -14,6 +14,40 @@ from app.security import hash_password, verify_password
 
 
 # --------------------------------------------------------------------------- #
+# 新部署的默认值
+# --------------------------------------------------------------------------- #
+def test_example_config_defaults_to_the_responses_provider() -> None:
+    """模板里的默认协议必须是 responses。
+
+    退回 ``openai_compat`` 会让新部署静默走 chat/completions —— 而那条路
+    在 DeepSeek 上因为 thinking 模式默认开启、命名 tool_choice 被拒，
+    **每个请求都是 400**（见 docs/dev-notes.md §7）。
+    """
+    from tests.conftest import EXAMPLE_CONFIG
+
+    cfg = Config(EXAMPLE_CONFIG)
+    assert cfg.llm.provider == "responses"
+    assert cfg.llm.base_url == "https://api.deepseek.com"
+    assert cfg.llm.model == "deepseek-flash"
+    # 重试默认值：3 次重试 + 指数退避
+    assert (cfg.llm.retry_count, cfg.llm.retry_backoff_seconds) == (3, 0.8)
+
+
+def test_llm_section_defaults_when_keys_are_absent(tmp_path: Path) -> None:
+    """老配置里没有 retry_* / provider 时也要能读，且默认走 responses。"""
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "[auth]\nsecret_key = \"x\"\n\n[llm]\nbase_url = \"https://x.invalid\"\nmodel = \"m\"\n",
+        encoding="utf-8",
+    )
+    cfg = Config(path)
+    assert cfg.llm.provider == "responses"
+    assert cfg.llm.retry_count == 3
+    assert cfg.llm.retry_backoff_seconds == 0.8
+    assert cfg.llm.max_tokens == 1024
+
+
+# --------------------------------------------------------------------------- #
 # 配置：注释保留与原子写入
 # --------------------------------------------------------------------------- #
 def test_update_section_preserves_comments_and_other_sections(config_path: Path) -> None:
@@ -133,6 +167,43 @@ def test_wal_mode_enabled(tmp_path: Path) -> None:
     apply_migrations(db)
     with db.connect() as conn:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
+
+
+def test_migrations_upgrade_an_existing_database(tmp_path: Path) -> None:
+    """在"已经跑过旧迁移"的库上补新列——服务器上的真实升级路径。
+
+    全新库一次跑完所有迁移跟"增量升级"是两条不同的代码路径：前者
+    建表时列就齐了，后者走的是 ``ALTER TABLE``。0003 给 ingest_drafts
+    加了 llm_path，必须确认旧库升上来之后旧行还能照常读。
+    """
+    from app.migrations.runner import MIGRATIONS_DIR
+
+    db = Database(tmp_path / "upgrade.db")
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    for name in ("0001_init.sql", "0002_session_location.sql"):
+        (legacy_dir / name).write_text(
+            (MIGRATIONS_DIR / name).read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+    applied = apply_migrations(db, legacy_dir)
+    assert len(applied) == 2
+
+    # 旧库上插一条没有 llm_path 的草稿
+    with db.transaction() as conn:
+        conn.execute(
+            "INSERT INTO ingest_drafts(status, channel, draft_json, created_at, expires_at)"
+            " VALUES ('pending', 'text', '{\"items\": []}', '2026-01-01T00:00:00+00:00',"
+            " '2026-01-02T00:00:00+00:00')"
+        )
+
+    # 补跑全部迁移
+    assert "0003_draft_llm_path.sql" in apply_migrations(db)
+
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM ingest_drafts").fetchone()
+    assert row["llm_path"] is None, "旧行的新列应当是 NULL，不是报错"
+    assert row["status"] == "pending"
 
 
 # --------------------------------------------------------------------------- #

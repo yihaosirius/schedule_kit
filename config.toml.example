@@ -39,16 +39,25 @@ start_date  = "2026-03-02"
 total_weeks = 18
 
 [llm]
-# 唯一结构化机制是 function calling；供应商必须支持强制 tool_choice + 视觉输入。
-provider        = "openai_compat"
-base_url        = "https://api.deepseek.com/v1"
-model           = "deepseek-vl2"
+# provider 三选一：
+#   responses      -> {base_url}/responses        （默认；DeepSeek、OpenAI）
+#   openai_compat  -> {base_url}/chat/completions （只有 chat 的供应商）
+#   mock           -> 离线测试，不访问网络
+# 唯一的结构化机制是「强制 function calling」，模型还必须支持视觉输入。
+# 拿不到 function call 时会自动降级到 JSON 输出一次，并在草稿上标记出来。
+provider        = "responses"
+base_url        = "https://api.deepseek.com"
+model           = "deepseek-flash"
 api_key         = ""
 temperature     = 0.0
 timeout_seconds = 60
-# 精简输出的硬保险
+# 精简输出的硬保险。Responses 里对应 max_output_tokens，且包含思考 token。
 max_tokens      = 1024
 max_image_bytes = 8388608
+# 临时性失败（连不上 / 超时 / 429 / 5xx）在放弃前的重试次数，不含首次尝试。
+# 401、400 这类确定性错误不重试。整个请求（含重试）另有 180 秒总预算。
+retry_count           = 3
+retry_backoff_seconds = 0.8
 # system prompt 保持静态（不含时间/课表上下文），以维持 prompt 缓存有效性。
 # 时间上下文由服务端在每次请求时拼进 user message。
 system_prompt   = """

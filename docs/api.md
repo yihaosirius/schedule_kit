@@ -149,9 +149,20 @@ curl -H "Authorization: Bearer $KEY" "$BASE/api/tasks?view=ordered&status=open&l
                "notes": "…", "source_quote": "…", "needs_priority": false } ],
   "context_snapshot": "[当前时间] …",
   "image_url": "/api/ingest/12/image",
-  "confirm_url": "https://…/drafts/12"
+  "confirm_url": "https://…/drafts/12",
+  "llm_path": "tool_call",
+  "llm_elapsed_ms": 1840
 }
 ```
+
+`llm_path` 说明这次结构化结果是怎么拿到的：
+
+| 值 | 含义 |
+|---|---|
+| `tool_call` | 正常路径——模型按要求返回了 `submit_tasks` 工具调用 |
+| `json_fallback` | 降级路径——模型没返回工具调用（或被供应商拒绝），服务端改用 JSON 模式重取了一遍。**识别结果通常没问题，但反复出现就该换模型或供应商了** |
+
+客户端已给出 `items`（跳过 LLM）时该字段为 `null`。
 
 服务端会对模型输出做**强制后处理**，所以 `items` 里的值可能与模型说的不同：
 
@@ -171,9 +182,14 @@ curl -H "Authorization: Bearer $KEY" "$BASE/api/tasks?view=ordered&status=open&l
 | 502 | LLM 调用失败。**草稿已留档**，响应里带 `draft_id`，`retryable: true` |
 | 503 | LLM 未配置（去 `/settings` 填 base_url / model / API Key） |
 
+502 的 `detail.message` 会带上**每条通道各自的原因**——第一条通常是真正
+有用的那条（"模型不支持强制 tool_choice" 比"降级通道里也没有 items"重要）。
+临时性失败（连接、超时、429、5xx）在返回 502 之前已经按
+`[llm].retry_count` 自动重试过；401/400 这类确定性错误不重试。
+
 ### `GET /api/ingest/{draft_id}`
 
-读取草稿（含 `context_snapshot`、`llm_provider`、`error` 等）。
+读取草稿（含 `context_snapshot`、`llm_provider`、`llm_path`、`error` 等）。
 
 ### `GET /api/ingest/{draft_id}/image`
 

@@ -514,7 +514,9 @@ ${C_OK}部署完成${C_END}
   对外地址   ${PUBLIC_URL}
 
 下一步：
-  1. 浏览器打开 ${PUBLIC_URL}/settings 填入 LLM 的 base_url / model / API Key
+  1. 浏览器打开 ${PUBLIC_URL}/settings 配置 LLM：
+     协议选 Responses API，base_url 填 https://api.deepseek.com，模型 deepseek-flash
+     （换供应商时注意：只有 chat/completions 的选「Chat Completions 兼容」）
   2. 打开 ${PUBLIC_URL}/courses 粘贴课表
   3. 在 ${PUBLIC_URL}/settings 创建 API Key 给快捷指令与 Windows 悬浮窗用
 

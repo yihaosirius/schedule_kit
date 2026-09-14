@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.deps import AuthDep, WriteAuthDep
-from app.llm.base import LLMError
+from app.llm.base import PATH_JSON_FALLBACK, LLMError
 from app.logging import get_logger, kv
 from app.media import MediaError, resolve_upload, store_image
 from app.ratelimit import ingest_limiter
@@ -189,11 +189,20 @@ async def create_ingest(payload: IngestRequest, request: Request, auth: WriteAut
         llm_provider=result.provider,
         llm_model=result.model,
         llm_raw=result.raw,
+        llm_path=result.path,
     )
     response = _draft_response(request, row, elapsed_ms=result.elapsed_ms)
+    if result.path == PATH_JSON_FALLBACK:
+        # 降级已经写过警告日志，这里再在录入日志里留一笔：查"什么时候开始
+        # 退化的"时，按这个事件过滤比翻 llm.* 更快。
+        log.warning(
+            "ingest.fallback_draft %s",
+            kv(draft_id=row["id"], channel=payload.channel, reason=(result.fallback_note or "")[:200]),
+        )
     log.info(
         "ingest.draft_ready %s",
-        kv(draft_id=row["id"], channel=payload.channel, items=len(normalized), elapsed_ms=result.elapsed_ms),
+        kv(draft_id=row["id"], channel=payload.channel, items=len(normalized),
+           elapsed_ms=result.elapsed_ms, path=result.path, attempts=result.attempts),
     )
     return response
 

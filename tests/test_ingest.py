@@ -13,7 +13,12 @@ import pytest
 from httpx import AsyncClient
 from PIL import Image
 
-from app.llm.base import LLMRequestFailed, LLMToolCallMissing
+from app.llm.base import (
+    PATH_JSON_FALLBACK,
+    PATH_TOOL_CALL,
+    LLMRequestFailed,
+    LLMToolCallMissing,
+)
 from app.llm.mock import MockLLM
 from app.services import normalize as normalize_service
 
@@ -29,8 +34,8 @@ def make_heic_like() -> bytes:
     return b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1"
 
 
-def use_llm(app, items=None, *, error: Exception | None = None) -> MockLLM:
-    llm = MockLLM(items=items, error=error)
+def use_llm(app, items=None, *, error: Exception | None = None, **kwargs) -> MockLLM:
+    llm = MockLLM(items=items, error=error, **kwargs)
     app.state.llm = llm
     return llm
 
@@ -215,6 +220,49 @@ async def test_ingest_reports_clearly_when_llm_unconfigured(
     status, body = await image_ingest(session_client)
     assert status == 503
     assert "gemini" in body["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# 降级通道要"响亮"
+# --------------------------------------------------------------------------- #
+async def test_json_fallback_is_recorded_and_surfaced(
+    app, session_client: AsyncClient
+) -> None:
+    """走到 JSON 降级通道时，草稿必须把它记下来，确认页也必须显示出来。
+
+    悄悄降级的话，"模型开始不按工具调用返回"这件事会被无声吞掉，
+    等发现时已经不知道退化了多久。
+    """
+    use_llm(
+        app,
+        [{"title": "交作业", "category": "homework", "due_at": None, "priority": 3}],
+        path=PATH_JSON_FALLBACK,
+        fallback_note="响应里没有 function_call",
+    )
+    status, body = await image_ingest(session_client)
+    assert status == 201
+    assert body["llm_path"] == PATH_JSON_FALLBACK
+
+    # 存进库了，重新读也还在
+    draft = (await session_client.get(f"/api/ingest/{body['draft_id']}")).json()
+    assert draft["llm_path"] == PATH_JSON_FALLBACK
+
+    # 确认页上有醒目提示
+    page = await session_client.get(f"/drafts/{body['draft_id']}")
+    assert page.status_code == 200
+    assert "JSON 降级通道" in page.text
+
+
+async def test_normal_path_is_not_flagged_as_fallback(
+    app, session_client: AsyncClient
+) -> None:
+    use_llm(app, [{"title": "交作业", "category": "homework", "due_at": None, "priority": 3}])
+    status, body = await image_ingest(session_client)
+    assert status == 201
+    assert body["llm_path"] == PATH_TOOL_CALL
+
+    page = await session_client.get(f"/drafts/{body['draft_id']}")
+    assert "降级通道" not in page.text
 
 
 # --------------------------------------------------------------------------- #
