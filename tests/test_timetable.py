@@ -292,8 +292,17 @@ async def test_courses_api_round_trip(session_client: AsyncClient) -> None:
     assert body["saved_sessions"] == 2
 
     fetched = (await session_client.get("/api/courses")).json()
-    assert fetched["courses"] == 2
     assert "高等数学" in fetched["text"]
+
+    # 结构化课表必须真的能取到。
+    #
+    # 这里曾经断言 fetched["courses"] == 2 —— 而那个 2 是**计数**：
+    # `**counts()` 里的 "courses" 键把上面刚构造好的课程数组覆盖掉了，
+    # 于是结构化课表整整一版都取不到，用例却在给这个 bug 背书。
+    assert fetched["course_count"] == 2
+    assert fetched["session_count"] == 2
+    assert [course["name"] for course in fetched["courses"]] == ["高等数学", "大学物理"]
+    assert fetched["courses"][0]["sessions"][0]["start_time"] == "08:00"
 
 
 async def test_courses_api_rejects_whole_batch_on_any_bad_line(session_client: AsyncClient) -> None:
@@ -307,7 +316,9 @@ async def test_courses_api_rejects_whole_batch_on_any_bad_line(session_client: A
     assert "坏行" in detail["errors"][0]["text"]
 
     # 关键：一条都不该入库
-    assert (await session_client.get("/api/courses")).json()["courses"] == 0
+    empty = (await session_client.get("/api/courses")).json()
+    assert empty["courses"] == []
+    assert empty["course_count"] == 0
 
 
 async def test_courses_api_accepts_structured_input(session_client: AsyncClient) -> None:
@@ -336,6 +347,46 @@ async def test_courses_page_renders(session_client: AsyncClient) -> None:
     assert "高等数学" in html
     assert "第 1 周周一" in html
     assert "data-courses-form" in html
+
+
+async def test_courses_can_actually_be_cleared(session_client: AsyncClient) -> None:
+    """清空课表必须真的可行。
+
+    原先 `if not parsed: raise 422 "如需清空请显式提交空课程数组"` 把
+    **所有**空输入都挡了，包括它自己推荐的"提交空课程数组"。网页上把文本框
+    清掉再保存也只会看到那句自相矛盾的提示——课表一旦写进去就再也删不掉。
+    """
+    line = {"text": "周一 08:00-09:40 高等数学 教三201 1-16周"}
+    assert (await session_client.put("/api/courses", json=line)).json()["course_count"] == 1
+
+    # ① 结构化空数组：这是错误提示原本推荐的做法
+    cleared = await session_client.put("/api/courses", json={"courses": []})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["course_count"] == 0
+    assert (await session_client.get("/api/courses")).json()["courses"] == []
+
+    # ② 文本框清空：网页上就是这个路径
+    await session_client.put("/api/courses", json=line)
+    blank = await session_client.put("/api/courses", json={"text": "   \n  "})
+    assert blank.status_code == 200, blank.text
+    assert blank.json()["course_count"] == 0
+
+
+async def test_comment_only_text_does_not_silently_wipe_the_timetable(
+    session_client: AsyncClient,
+) -> None:
+    """纯注释不是"清空"的表达方式，不该被当成清空。
+
+    这是清空功能与防误删之间那条线：空白 = 清空；有内容却解析不出课程 = 报错。
+    """
+    await session_client.put(
+        "/api/courses", json={"text": "周一 08:00-09:40 高等数学 教三201 1-16周"}
+    )
+    response = await session_client.put("/api/courses", json={"text": "# 只是备注\n"})
+    assert response.status_code == 422
+    assert "没有解析出任何课程" in response.json()["detail"]
+    # 课表原封不动
+    assert (await session_client.get("/api/courses")).json()["course_count"] == 1
 
 
 async def test_courses_require_auth(client: AsyncClient) -> None:

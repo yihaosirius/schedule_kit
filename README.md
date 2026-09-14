@@ -17,7 +17,7 @@
 | 文档 | 内容 |
 |---|---|
 | [`PLAN.md`](PLAN.md) | 完整设计：数据模型、接口、部署、测试、里程碑 |
-| [`docs/api.md`](docs/api.md) | HTTP 接口规格（快捷指令 / agent 对接看这个） |
+| [`docs/api.md`](docs/api.md) | HTTP 接口规格：19 个端点逐条实跑核对，含错误码与权限矩阵（快捷指令 / agent 对接看这个） |
 | [`docs/shortcuts.md`](docs/shortcuts.md) | Apple 快捷指令逐步搭建 + 四个必踩的坑 |
 | [`docs/widget-v2.md`](docs/widget-v2.md) | Scriptable 小组件设计（v2） |
 | [`docs/dev-notes.md`](docs/dev-notes.md) | trace 日志约定、开发环境坑、数据集不变量 |

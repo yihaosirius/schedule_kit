@@ -51,6 +51,7 @@ def _serialize(request: Request) -> dict[str, Any]:
     db = request.app.state.db
     courses = course_service.load_courses(db)
     grouped = course_service.sessions_by_course(db)
+    counts = course_service.counts(db)
     return {
         "text": format_timetable(courses, grouped),
         "courses": [
@@ -73,7 +74,11 @@ def _serialize(request: Request) -> dict[str, Any]:
             }
             for row in courses
         ],
-        **course_service.counts(db),
+        # 计数刻意不叫 "courses"/"sessions"：那样会和上面的课程数组**撞名**，
+        # 展开顺序在后就把数组覆盖成整数了 —— 结构化课表因此整整一版都取不到，
+        # 而用例断言的是那个整数，于是谁也没发现。见 tests/test_timetable.py。
+        "course_count": counts["courses"],
+        "session_count": counts["sessions"],
     }
 
 
@@ -106,6 +111,8 @@ def put_courses(payload: CoursesPayload, request: Request, auth: WriteAuthDep) -
             )
             for course in payload.courses
         ]
+        # 结构化形式给空数组 = 明确要清空。
+        cleared = not parsed
     elif payload.text is not None:
         outcome = parse_timetable(payload.text, total_weeks=cfg.term.total_weeks)
         if outcome.errors:
@@ -118,11 +125,20 @@ def put_courses(payload: CoursesPayload, request: Request, auth: WriteAuthDep) -
                 },
             )
         parsed = outcome.courses
+        # 文本框被清空（只剩空白）也是"要清空"。纯注释文本不算——
+        # 那不是清空的表达方式，不该悄悄把课表擦掉。
+        cleared = not (payload.text or "").strip()
     else:
         raise HTTPException(status_code=422, detail="需要提供 text 或 courses 之一")
 
-    if not parsed:
-        raise HTTPException(status_code=422, detail="课表为空；如需清空请显式提交空课程数组")
+    # 这里曾经是 `if not parsed: raise 422 "如需清空请显式提交空课程数组"` ——
+    # 而提交空数组同样落进这个分支，于是**课表根本没法清空**，网页上把文本框
+    # 清掉再保存也只会看到那句自相矛盾的提示。现在空输入就是清空。
+    if not parsed and not cleared:
+        raise HTTPException(
+            status_code=422,
+            detail="文本里没有解析出任何课程。要清空课表，请提交空内容或空课程数组。",
+        )
 
     course_count, session_count = course_service.replace_all(request.app.state.db, parsed)
     result = _serialize(request)

@@ -262,21 +262,31 @@ CREATE INDEX idx_sessions_course ON course_sessions(course_id);
 | 2 | POST | `/api/logout` | 清除 Cookie |
 | 3 | GET | `/api/tasks?view=ordered\|unordered&status=&category=&limit=` | 有序表按 `due_at ASC`；无序表按 `priority ASC, created_at ASC` |
 | 4 | POST | `/api/tasks` | 支持 `client_uuid` 幂等 |
-| 5 | PATCH | `/api/tasks/{id}` | 改标题/分类/deadline/优先级/状态（勾选完成即 `status=done`） |
-| 6 | DELETE | `/api/tasks/{id}` | 删除 |
-| 7 | POST | `/api/ingest` | `{channel:"image"\|"text", image_base64?, mime?, text?}` → 草稿（**不写 items**） |
+| 5 | PATCH | `/api/tasks/{item_id}` | 改标题/分类/deadline/优先级/状态（勾选完成即 `status=done`） |
+| 6 | DELETE | `/api/tasks/{item_id}` | 删除 |
+| 7 | POST | `/api/ingest` | `{channel:"image"\|"text", image_base64?, mime?, text?, items?}` → 草稿（**不写 items**） |
 | 8 | GET | `/api/ingest/{draft_id}` | 读取草稿（含 `context_snapshot`） |
-| 9 | POST | `/api/ingest/{draft_id}/confirm` | 确认入库（单事务、幂等） |
-| 10 | POST | `/api/ingest/{draft_id}/discard` | 丢弃 |
-| 11 | GET | `/api/courses` | 课程及其全部 sessions |
-| 12 | PUT | `/api/courses` | **整体替换**；接受结构化 JSON 或课表文本 |
-| 13 | GET | `/api/settings` | 读 LLM 配置（密钥仅返回"已设置/未设置"） |
-| 14 | PUT | `/api/settings` | 写 `[llm]` 段并热加载 |
-| 15 | GET | `/api/keys` | 列出密钥（仅元数据） |
-| 16 | POST | `/api/keys` | 创建密钥，**仅此一次返回明文** |
-| 17 | DELETE | `/api/keys/{id}` | 吊销 |
+| 9 | GET | `/api/ingest/{draft_id}/image` | 草稿原图 |
+| 10 | POST | `/api/ingest/{draft_id}/confirm` | 确认入库（单事务、幂等） |
+| 11 | POST | `/api/ingest/{draft_id}/discard` | 丢弃 |
+| 12 | GET | `/api/courses` | 课表文本 + 课程及其全部 sessions + 计数 |
+| 13 | PUT | `/api/courses` | **整体替换**；接受结构化 JSON 或课表文本；空输入即清空 |
+| 14 | GET | `/api/status` | 运行状态（内存/磁盘/计数） |
+| 15 | GET | `/api/settings` | 读 LLM 配置（密钥仅返回"已设置/未设置"） |
+| 16 | PUT | `/api/settings` | 写 `[llm]` 段并热加载 |
+| 17 | GET | `/api/keys` | 列出密钥（仅元数据） |
+| 18 | POST | `/api/keys` | 创建密钥，**仅此一次返回明文** |
+| 19 | DELETE | `/api/keys/{key_id}` | 吊销 |
+| 20 | GET | `/healthz` | 存活探测，无需鉴权 |
 
-页面 5 个：`/`、`/login`、`/drafts/{id}`、`/courses`、`/settings`（即控制台）。`/docs` 仅登录后可见。
+> **本表是计划期的接口意图，不是权威清单。** 逐字段的入参约束、错误码、
+> 响应结构以 `docs/api.md` 为准——那一版是实跑核对出来的，并且由
+> `tests/test_api_docs.py` 钉住与实现同步。
+
+页面 6 个：`/`、`/login`、`/drafts/{draft_id}`、`/courses`、`/settings`（即控制台）、
+`/sw.js`（Service Worker 必须挂在根路径）。**没有 `/docs`**——`create_app()` 里
+`docs_url` / `openapi_url` 都是 `None`，OpenAPI 描述不公开暴露；要取 schema
+在进程内直接调 `app.openapi()`。
 
 ## 9. 课表与时间上下文
 
