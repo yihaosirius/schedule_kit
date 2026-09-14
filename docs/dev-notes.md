@@ -431,6 +431,52 @@ if not parsed:
 一般化的教训：**"渲染了什么"和"提交了什么"是两件事，中间那条缝最容易丢数据。**
 新加字段时，检查一遍这几个地方：`_public()` → 模板 → `collect()` → `validate_client_items()`。
 
+### 11.1 修完之后用户说"还是丢" —— 而且这次真的是缓存
+
+改完 `collect()` 之后用户又测了一次，仍然丢备注。代码是对的，原因是**浏览器还
+在跑旧的 `draft.js`**：
+
+- `draft.html` 是服务端渲染的 → 页面上的备注输入框是新的（所以"核对界面有 notes 了"）
+- `draft.js` 是静态文件 → 被**旧的** SW 以 cache-first 端上来，还是那份只发 4 个字段的旧代码
+
+于是表现成"界面变了、行为没变"，最容易让人怀疑是服务端还有第二个 bug。
+
+**看出来的办法**：DevTools → Network，看 `draft.js` 的 Size 列是不是
+`(Service Worker)`，以及 URL 后面有没有 `?v=`。
+
+### 11.2 两道保险，让这类事不再发生
+
+**① 声明式收集（治的是"忘了同步"）**
+
+`collect()` 不再列字段名，改为扫描带 `data-submit` 的控件：
+
+```js
+item.querySelectorAll("[data-submit]").forEach((control) => {
+  values[control.dataset.field] = control.value;
+});
+```
+
+字段的真相只有一处 —— 模板。模板加了字段就自动带上，不需要改 JS。
+配套用例 `test_every_rendered_field_is_submitted_or_explicitly_handled`
+保证确认页上每个 `data-field` 要么在 `EXPLICITLY_HANDLED` 里、要么带
+`data-submit`；漏一个就红。
+
+这一条还**让客户端行为变得可测**：`simulate_collect()` 完全按 HTML 上的标记
+拼 payload，不另写一份字段名，所以"用户看到的值会不会被提交"可以在 Python 侧
+验证，不需要跑浏览器。
+
+**② 资源版本串（治的是"改了看不到"）**
+
+模板引静态资源一律带 `?v={{ asset_version }}`，值是**全部前端文件内容的
+哈希**（`app/templating.py` 导入时算一次）。内容变了它就变，不需要手工维护。
+
+关键是它连**已经装了旧 SW 的设备**也救得回来：带版本串的 URL 是不同的缓存键，
+旧的 `caches.match()` 匹配不到，直接绕过缓存。所以这次的修复**不需要用户清
+任何东西** —— 部署后普通刷新一次就够了。
+
+（图标与 manifest 不加版本串：它们不随发布变化，而且 manifest 里的图标路径
+是它自己引用的，加不上。）
+
 ---
 
 ## 12. 往首页加一栏：别动列数

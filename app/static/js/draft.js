@@ -54,20 +54,32 @@
   syncAll();
 
   /* ── 收集与提交 ─────────────────────────────────────────────────── */
-  /* 这里必须把用户能看到的字段**全部**带回去。
-     踩过的坑：只发 title/category/due_at/priority 四个，于是 notes 与
-     source_quote 在"网页二次审核"这条路上被静默丢掉——草稿里有的备注，
+  /* 需要原样回传的字段由模板上的 `data-submit` 标记决定，**不在这里列名字**。
+
+     踩过的坑：最早只回传 title/category/due_at/priority 四个，于是 notes 与
+     source_quote 在"网页二次审核"这条路上被静默丢掉——草稿里明明有备注，
      确认后任务里变成空字符串；而接口直接确认（不带 items）反而保留，
-     所以表现得很像"偶发"。 */
+     所以表现得很像"偶发"。
+
+     改成声明式之后：模板加了字段就会自动带上，不需要改这个文件。
+     tests/test_task_notes.py 里有用例保证"确认页上每个 data-field 要么被
+     显式处理、要么带 data-submit"，漏一个就红。 */
+  function passthrough(item) {
+    const values = {};
+    item.querySelectorAll("[data-submit]").forEach((control) => {
+      values[control.dataset.field] = control.value;
+    });
+    return values;
+  }
+
   function collect() {
     return [...list.querySelectorAll(".draft-item")].map((item) => {
       const get = (name) => item.querySelector(`[data-field="${name}"]`);
       const mode = get("mode").value;
       const entry = {
+        ...passthrough(item),
         title: get("title").value.trim(),
         category: get("category").value,
-        notes: get("notes").value.trim(),
-        source_quote: get("source_quote").value,
       };
       if (mode === "due") {
         const raw = get("due_at").value;

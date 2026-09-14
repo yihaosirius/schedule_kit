@@ -129,6 +129,6 @@
 
 {% block scripts %}
 {% if drafts %}
-<script src="/static/js/drafts.js" defer></script>
+<script src="/static/js/drafts.js?v={{ asset_version }}" defer></script>
 {% endif %}
 {% endblock %}

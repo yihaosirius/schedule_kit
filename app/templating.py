@@ -2,16 +2,43 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Any
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
-from app.paths import TEMPLATES_DIR
+from app.paths import STATIC_DIR, TEMPLATES_DIR
 from app.timeutil import load_zone, parse_iso
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _static_version() -> str:
+    """静态资源的缓存破坏串 —— 全部前端文件内容的哈希。
+
+    为什么需要它：Service Worker 曾经对 ``/static/`` 用 cache-first，于是新的
+    CSS / JS 永远到不了已经装过 SW 的浏览器（docs/dev-notes.md §10）。SW 已经
+    改成 network-first，但**已经装了旧 SW 的设备**依然会命中旧缓存，而旧 SW
+    要等下一次导航才会被替换掉——用户在那一瞬间看到的就是"改了没生效"。
+
+    带版本串的 URL 是**不同的缓存键**，`caches.match()` 匹配不到，直接绕过旧
+    缓存。所以它不只是优化，是给这类事故兜底的保险。
+
+    在导入时算一次（几个小文件，几十 KB）。不需要手工维护版本号——内容变了
+    它就变，没变就不变。
+    """
+    digest = hashlib.sha256()
+    for path in sorted(STATIC_DIR.rglob("*")):
+        if path.is_file() and path.suffix in {".css", ".js", ".webmanifest"}:
+            digest.update(path.name.encode("utf-8"))
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:10]
+
+
+#: 模板里用 ``?v={{ asset_version }}`` 引静态资源。
+ASSET_VERSION = _static_version()
 
 #: 分类 → 中文标签。顺序即 UI 中的展示顺序。
 CATEGORY_LABELS: dict[str, str] = {
@@ -176,6 +203,7 @@ def render(request: Request, template_name: str, **context: Any):
         "categories": CATEGORY_LABELS,
         "priorities": PRIORITY_LABELS,
         "csrf_token": request.cookies.get("sk_csrf", ""),
+        "asset_version": ASSET_VERSION,
     }
     base_context.update(context)
     return templates.TemplateResponse(request, template_name, base_context)

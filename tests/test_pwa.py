@@ -122,6 +122,57 @@ def test_service_worker_versions_its_cache() -> None:
     assert "caches.delete" in text, "activate 时应清理旧版本缓存"
 
 
+# --------------------------------------------------------------------------- #
+# 静态资源的缓存破坏串
+# --------------------------------------------------------------------------- #
+async def test_static_assets_carry_a_content_hash(session_client: AsyncClient) -> None:
+    """模板引静态资源必须带 ?v=<内容哈希>。
+
+    这是给"SW 缓存让改动不生效"兜底的**第二道**保险：SW 已经改成
+    network-first，但**已经装过旧 SW 的设备**仍然会命中旧缓存，而旧 SW
+    要等下一次导航才被替换。带版本串的 URL 是不同的缓存键，`caches.match()`
+    匹配不到，直接就绕过去了 —— 用户不需要手动清缓存。
+    """
+    from app.templating import ASSET_VERSION
+
+    assert ASSET_VERSION, "版本串不该为空"
+    # 用首页取样：已登录时 /login 会 303 到 /，响应体是空的
+    html = (await session_client.get("/")).text
+    assert f"/static/css/app.css?v={ASSET_VERSION}" in html
+    assert f"/static/js/app.js?v={ASSET_VERSION}" in html
+
+    # 逐个检查渲染出来的资源引用：漏一个就有一份资源会走旧缓存
+    urls = re.findall(r'(?:src|href)="(/static/(?:css|js)/[^"]+)"', html)
+    assert urls, "首页没引用任何 CSS/JS，用例失去意义"
+    for url in urls:
+        assert "?v=" in url, f"{url} 没有版本串，会走旧缓存"
+
+
+async def test_every_template_versions_its_assets() -> None:
+    """所有模板都要带版本串——漏一个就等于那个文件仍然会被旧缓存钉住。"""
+    templates_dir = PROJECT_ROOT / "app" / "templates"
+    for template in sorted(templates_dir.glob("*.html")):
+        for match in re.finditer(
+            r'(?:src|href)="(/static/(?:css|js)/[^"]+)"', template.read_text(encoding="utf-8")
+        ):
+            url = match.group(1)
+            assert "?v=" in url, f"{template.name} 里 {url} 没有版本串"
+
+
+def test_asset_version_changes_with_content() -> None:
+    """版本串必须由内容决定 —— 手工维护版本号迟早会忘。"""
+    import app.templating as templating
+
+    before = templating.ASSET_VERSION
+    original = templating._static_version
+    try:
+        # 内容没变 → 版本不变
+        assert original() == before
+    finally:
+        templating._static_version = original
+    assert len(before) == 10, "取哈希前 10 位，够短也够区分"
+
+
 def test_service_worker_does_not_fail_install_on_one_bad_asset() -> None:
     text = SW_JS.read_text(encoding="utf-8")
     assert "allSettled" in text, "单个外壳资源缺失不应让整个 SW 安装失败"

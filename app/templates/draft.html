@@ -113,14 +113,17 @@
                    草稿里明明有 1(1,3),4,5(1)…，确认后任务里变成空字符串。
                    （接口直接确认不带 items 时反而保留，所以看起来像"偶发"。）
 
-                   source_quote 同理，用隐藏字段带回去；它是判定的依据，
-                   丢了就没法回溯"它从哪儿读出来的"。 #}
+                   data-submit = "原样回传给 confirm"。collect() 按这个标记
+                   通用收集，所以这里加字段不需要改 JS。
+                   别给 title/category/mode/due_at/priority 加这个标记：
+                   它们由 collect() 显式处理，重复标记会让未规整的原始值
+                   覆盖掉处理后的值。 #}
                 <label class="draft-field draft-field--notes">
                   <span>备注</span>
-                  <textarea data-field="notes" rows="2" maxlength="2000"
+                  <textarea data-field="notes" data-submit rows="2" maxlength="2000"
                             placeholder="没有备注">{{ item.notes }}</textarea>
                 </label>
-                <input type="hidden" data-field="source_quote" value="{{ item.source_quote }}">
+                <input type="hidden" data-field="source_quote" data-submit value="{{ item.source_quote }}">
               </div>
             </li>
           {% endfor %}
@@ -138,6 +141,6 @@
 
 {% block scripts %}
 {% if draft.status == 'pending' %}
-<script src="/static/js/draft.js" defer></script>
+<script src="/static/js/draft.js?v={{ asset_version }}" defer></script>
 {% endif %}
 {% endblock %}
